@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NMIXX 3D 演唱會模擬器 | MIXXTOPIA STAGE</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@700;900&family=Noto+Sans+TC:wght@400;700;900&display=swap');
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #030712;
+      font-family: 'Noto Sans TC', 'Montserrat', sans-serif;
+      user-select: none;
+    }
+    #canvas-container {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+    }
+    .glass-panel {
+      background: rgba(10, 15, 30, 0.72);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+    .fanchant-glow {
+      text-shadow: 0 0 12px rgba(56, 189, 248, 0.9), 0 0 24px rgba(14, 165, 233, 0.7);
+    }
+    .changeup-glow {
+      text-shadow: 0 0 15px rgba(244, 63, 94, 1), 0 0 30px rgba(217, 70, 239, 0.9);
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 14px rgba(56, 189, 248, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+    }
+    .cheer-btn-active {
+      animation: pulse-ring 1.2s infinite;
+    }
+  </style>
+</head>
+<body class="text-white">
+
+  <!-- 3D 渲染畫布 -->
+  <div id="canvas-container"></div>
+
+  <!-- 頂部導覽與應援提詞機 -->
+  <div class="fixed top-0 left-0 right-0 z-10 p-3 md:p-4 flex flex-col items-center pointer-events-none">
+    <!-- 演唱會標題與狀態列 -->
+    <div class="w-full max-w-6xl flex flex-wrap justify-between items-center gap-2 pointer-events-auto">
+      <div class="glass-panel px-4 py-2 rounded-2xl flex items-center gap-3">
+        <div class="w-3 h-3 rounded-full bg-cyan-400 animate-ping"></div>
+        <div>
+          <div class="text-xs text-cyan-300 font-bold tracking-widest">NMIXX FAN CONCERT SIMULATOR</div>
+          <div class="text-sm md:text-base font-black tracking-tight">MIXXTOPIA : CHANGE UP ARENA</div>
+        </div>
+      </div>
+
+      <!-- 當前座位票價與視角鏡頭倍率 -->
+      <div class="glass-panel px-4 py-2 rounded-2xl flex items-center gap-4">
+        <div>
+          <span class="text-xs text-slate-400 block">目前座位區域</span>
+          <span id="current-seat-badge" class="text-sm font-bold text-cyan-300">VIP 延伸舞台魚池區 (NT$ 6,800)</span>
+        </div>
+        <div class="h-7 w-[1px] bg-slate-700"></div>
+        <div class="flex items-center gap-1">
+          <span class="text-xs text-slate-400 mr-1">手機焦段:</span>
+          <button onclick="setZoom(1)" id="zoom-1" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-500 text-slate-950 transition">1x 廣角</button>
+          <button onclick="setZoom(2.2)" id="zoom-2" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">3x 人像</button>
+          <button onclick="setZoom(4.5)" id="zoom-3" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-amber-300 transition">10x 飯拍神器</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 應援提詞機 (Fanchant Teleprompter) -->
+    <div class="mt-3 w-full max-w-3xl glass-panel rounded-2xl px-6 py-3 text-center border border-cyan-400/40 shadow-2xl pointer-events-auto">
+      <div class="flex items-center justify-between text-xs text-slate-400 mb-1">
+        <span id="now-playing-title" class="font-bold text-cyan-300">🎵 正在演出：DASH (BPM: 130)</span>
+        <span id="song-section-badge" class="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-200 font-bold">主歌 / 應援準備</span>
+      </div>
+      <!-- 主應援詞 -->
+      <div id="fanchant-main" class="text-xl md:text-3xl font-black tracking-wide text-white fanchant-glow transition-all duration-150">
+        릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 엔믹스!
+      </div>
+      <!-- 空耳與節拍提示 -->
+      <div id="fanchant-sub" class="text-xs md:text-sm text-cyan-200/90 font-semibold mt-1">
+        【空耳應援】Lily！吳海嫄！薛侖娥！Bae！金智友！張圭珍！NMIXX！
+      </div>
+      <!-- 節拍進度條 -->
+      <div class="w-full bg-slate-800/80 h-1.5 rounded-full mt-2.5 overflow-hidden">
+        <div id="beat-progress" class="bg-gradient-to-r from-cyan-400 via-blue-500 to-fuchsia-500 h-full w-1/3 transition-all duration-100"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 左側控制面板：票價選位圖 & 曲目切換 -->
+  <div class="fixed left-3 md:left-4 bottom-4 z-10 w-80 max-w-[92vw] flex flex-col gap-3 pointer-events-auto">
+    
+    <!-- 票價區域選擇 + 迷你場館座位圖 -->
+    <div class="glass-panel rounded-2xl p-3.5">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-extrabold uppercase tracking-wider text-cyan-300">🎫 切換票價與座位視角</span>
+        <span class="text-[11px] text-slate-400">拖曳畫面可自由環視</span>
+      </div>
+
+      <!-- 迷你場館座位示意圖 -->
+      <div class="relative bg-slate-900/90 border border-slate-700/80 rounded-xl p-2 mb-2.5 flex flex-col items-center gap-1 text-[10px]">
+        <div class="w-3/4 py-1 bg-gradient-to-r from-indigo-600 via-cyan-500 to-indigo-600 text-center font-black rounded text-slate-950">
+          MAIN STAGE 主舞台 + 巨型 LED
+        </div>
+        <div class="flex items-center justify-center w-full gap-1.5 my-0.5">
+          <button onclick="selectSeat('vip_main')" id="map-vip_main" class="flex-1 py-1.5 rounded bg-rose-500/30 border border-rose-400 text-rose-200 font-bold hover:bg-rose-500/50 transition">
+            VIP 主舞台區<br>$5,800
+          </button>
+          <div class="w-8 py-3 bg-cyan-400/90 text-slate-950 font-black text-center rounded leading-tight">
+            延伸<br>舞台
+          </div>
+          <button onclick="selectSeat('vip_pit')" id="map-vip_pit" class="flex-1 py-1.5 rounded bg-cyan-500/40 border-2 border-cyan-300 text-white font-bold hover:bg-cyan-500/60 transition">
+            VIP 搖滾魚池<br>$6,800
+          </button>
+        </div>
+        <button onclick="selectSeat('balcony_2f')" id="map-balcony_2f" class="w-11/12 py-1 rounded bg-amber-500/20 border border-amber-400/60 text-amber-200 font-bold hover:bg-amber-500/40 transition">
+          2F 看台前排王位 (全景燈海) · NT$ 4,800
+        </button>
+        <button onclick="selectSeat('balcony_3f')" id="map-balcony_3f" class="w-full py-1 rounded bg-purple-500/20 border border-purple-400/60 text-purple-200 font-bold hover:bg-purple-500/40 transition">
+          3F 山頂氣氛區 (高空巨幕+波浪燈海) · NT$ 2,800
+        </button>
+      </div>
+
+      <p id="seat-desc" class="text-[11px] text-slate-300 leading-relaxed">
+        📍 <b>延伸舞台正前方第一排</b>：能清楚看見成員眼神互動與舞蹈細節，彩帶噴發時沉浸感最高！
+      </p>
+    </div>
+
+    <!-- 歌單與應援曲目選擇 -->
+    <div class="glass-panel rounded-2xl p-3.5">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-xs font-extrabold uppercase tracking-wider text-cyan-300">💿 NMIXX 演出曲目單</span>
+        <button onclick="toggleAudio()" id="audio-toggle-btn" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition">
+          🔊 現場音效：開啟
+        </button>
+      </div>
+      <div id="song-list" class="grid grid-cols-1 gap-1.5 max-h-44 overflow-y-auto pr-1">
+        <!-- 由 JS 動態生成曲目按鈕 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 右下角控制面板：MIXXSTICK 手燈中控 & 應援互動按鈕 -->
+  <div class="fixed right-3 md:right-5 bottom-4 z-10 flex flex-col items-end gap-3 pointer-events-auto">
+    
+    <!-- 手燈中控與應援熱度面板 -->
+    <div class="glass-panel rounded-2xl p-3.5 w-72">
+      <div class="flex justify-between items-center mb-2">
+        <span class="text-xs font-extrabold text-cyan-300">🐋 MIXXSTICK 中控模式</span>
+        <span id="fever-text" class="text-xs font-black text-amber-300">應援熱度 100%</span>
+      </div>
+      <div class="grid grid-cols-2 gap-1.5 text-xs mb-3">
+        <button onclick="setLightMode('ocean')" id="mode-ocean" class="py-1.5 px-2 rounded-lg font-bold bg-cyan-500 text-slate-950 transition">🌊 深海鯨魚藍</button>
+        <button onclick="setLightMode('wave')" id="mode-wave" class="py-1.5 px-2 rounded-lg font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">🌈 全場彩虹波浪</button>
+        <button onclick="setLightMode('mixxpop')" id="mode-mixxpop" class="py-1.5 px-2 rounded-lg font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">⚡ CHANGE UP 爆閃</button>
+        <button onclick="setLightMode('member')" id="mode-member" class="py-1.5 px-2 rounded-lg font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">💎 成員代表色</button>
+      </div>
+
+      <!-- 互動按鈕：應援吶喊 & NMIXX CHANGE UP -->
+      <div class="flex gap-2">
+        <button onclick="triggerCheer()" class="cheer-btn-active flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-600 text-slate-950 font-black text-sm shadow-lg hover:brightness-110 active:scale-95 transition">
+          📣 應援吶喊 (Space)
+        </button>
+        <button onclick="triggerChangeUp()" class="px-3 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 via-fuchsia-500 to-indigo-500 text-white font-black text-xs shadow-lg hover:brightness-110 active:scale-95 transition" title="觸發 MIXX POP 曲風拼接特效與彩帶！">
+          🔥 CHANGE UP!
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /**************************************************************
+     * 1. NMIXX 曲目與真實應援詞資料庫 (含韓文、空耳與節奏設定)
+     **************************************************************/
+    const SONGS = [
+      {
+        id: 'dash',
+        title: 'DASH',
+        album: 'Fe3O4: BREAK',
+        bpm: 130,
+        baseColor: 0x00d2ff,
+        changeUpColor: 0xff1e56,
+        bassNotes: [55, 55, 65.41, 73.42, 82.41, 73.42, 65.41, 58.27],
+        chants: [
+          { section: 'Intro 成員應援', kr: '릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 엔믹스!', sub: '【全場大聲】Lily！吳海嫄！薛侖娥！Bae！金智友！張圭珍！NMIXX！' },
+          { section: 'Verse 1', kr: 'Run it, run it! (Hey!) 묶인 채로 버려진 Road!', sub: '【應援跟唱】Run it, run it! (揮動 MIXXSTICK 兩次！)' },
+          { section: 'Pre-Chorus', kr: 'I wanna dash, I wanna run it! 끝까지 가보자고!', sub: '【預備拼接】手燈高舉準備迎接節奏轉換！' },
+          { section: '⚡ MIXX POP', kr: 'NMIXX! CHANGE UP! Let\'s go!', sub: '🔥【招牌轉折】全場齊喊 CHANGE UP！彩帶與雷射全開！', isChangeUp: true },
+          { section: 'Chorus 副歌', kr: 'Dash! I wanna dash! (엔믹스!) 거침없이 달려가!', sub: '【副歌應援】在 Dash! 後面大喊「NMIXX！」' }
+        ]
+      },
+      {
+        id: 'seethat',
+        title: 'See that? (별별별)',
+        album: 'Fe3O4: STICK OUT',
+        bpm: 118,
+        baseColor: 0x7c3aed,
+        changeUpColor: 0xfacc15,
+        bassNotes: [49, 49, 58.27, 61.74, 65.41, 61.74, 55, 49],
+        chants: [
+          { section: 'Intro 口號', kr: 'See that? 별! 별! 별! (엔믹스!)', sub: '【節奏應援】See that? 星星星！(NMIXX!)' },
+          { section: '本名應援', kr: '릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 별별별!', sub: '【六人應援】Lily！吳海嫄！薛侖娥！Bae！金智友！張圭珍！별별별！' },
+          { section: '⚡ MIXX POP', kr: 'NMIXX! Old school hip-hop to Country Star!', sub: '🔥【曲風突變】暗黑嘻哈切換鄉村搖滾節奏！', isChangeUp: true },
+          { section: 'Chorus 副歌', kr: '내가 좀 별나서! (별! 별! 별!) See that!', sub: '【全場齊喊】別！別！別！(高舉鯨魚手燈連閃三下)' }
+        ]
+      },
+      {
+        id: 'lmlt',
+        title: 'Love Me Like This',
+        album: 'expérgo',
+        bpm: 124,
+        baseColor: 0x38bdf8,
+        changeUpColor: 0xec4899,
+        bassNotes: [65.41, 73.42, 82.41, 98.0, 82.41, 73.42, 65.41, 55.0],
+        chants: [
+          { section: 'Intro 歡呼', kr: '엔! 믹! 스! Love Me Like This!', sub: '【開場吶喊】N - M - I - X - X！' },
+          { section: 'Chorus 招牌中毒段', kr: 'Love me like this! (Hey!) Love me like that! (Ho!)', sub: '【節拍互動】每拍跟著 Bass 重音上下揮動手燈！' },
+          { section: '⚡ Bridge 高音合音', kr: '릴리! 설윤! 해원!無伴奏神級合音段落', sub: '🔥【實力現場】全場屏息聽清唱合音，隨後爆發尖叫！', isChangeUp: true },
+          { section: 'Outro 結尾', kr: '릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 사!랑!해!', sub: '【結尾告白】六人本名 + 撒浪嘿！' }
+        ]
+      },
+      {
+        id: 'dice',
+        title: 'DICE',
+        album: 'ENTWURF',
+        bpm: 133,
+        baseColor: 0x6366f1,
+        changeUpColor: 0x10b981,
+        bassNotes: [61.74, 61.74, 73.42, 82.41, 92.5, 82.41, 73.42, 61.74],
+        chants: [
+          { section: 'Opening', kr: 'O.O to DICE! 릴리 오해원 설윤아 배이 김지우 장규진!', sub: '【經典應援】開場小號響起立刻進入六人應援！' },
+          { section: '⚡ MIXX POP', kr: 'NMIXX! CHANGE UP! Let\'s go! Big wave, big wave 피하지 마!', sub: '🔥【傳奇巨浪】Big wave! 全場手燈掀起波浪舞！', isChangeUp: true },
+          { section: 'High Note 高音', kr: '더 높이 날아올라 Roll the dice! (와아아아!!)', sub: '【Lily & 薛侖高音】全場最強分貝尖叫支援！' }
+        ]
+      },
+      {
+        id: 'runforroses',
+        title: 'Run For Roses',
+        album: 'Fe3O4: BREAK',
+        bpm: 112,
+        baseColor: 0xf43f5e,
+        changeUpColor: 0x38bdf8,
+        bassNotes: [55, 65.41, 73.42, 82.41, 73.42, 65.41, 55, 49],
+        chants: [
+          { section: '大合唱 Intro', kr: 'La-la-la-la-la~ Run for roses!', sub: '【萬人大合唱】全場左右大幅度揮舞玫瑰紅與海洋藍手燈！' },
+          { section: '⚡ Band Drop', kr: 'We run for roses! (엔믹스!) 피어날 때까지!', sub: '🔥【演唱會神曲高潮】鼓點炸裂，全場跳起來應援！', isChangeUp: true },
+          { section: 'Outro 安可', kr: '엔믹스! 영원하자! NSWER가 지켜줄게!', sub: '【NSWER 口號】NMIXX 永遠在一起！' }
+        ]
+      }
+    ];
+
+    /**************************************************************
+     * 2. 票價座位視角設定 (4種不同票價與相機座標)
+     **************************************************************/
+    const SEATS = {
+      vip_pit: {
+        name: 'VIP 延伸舞台搖滾魚池區',
+        price: 'NT$ 6,800',
+        pos: { x: 0, y: 2.35, z: 7.2 },
+        lookAt: { x: 0, y: 2.8, z: -2.5 },
+        desc: '📍 <b>延伸舞台正前方第一排</b>：近距離仰視 6 位成員在延伸舞台熱舞，連成員走位與眼神飯撒都一清二楚！',
+        reverb: 0.15
+      },
+      vip_main: {
+        name: 'VIP 主舞台正前特A區',
+        price: 'NT$ 5,800',
+        pos: { x: -5.2, y: 2.4, z: 0.5 },
+        lookAt: { x: 0, y: 3.1, z: -9.5 },
+        desc: '📍 <b>主舞台正前方特區</b>：正面直擊巨型 LED 視覺、雷射光束與完整刀群舞隊形，舞台氣勢最震撼。',
+        reverb: 0.2
+      },
+      balcony_2f: {
+        name: '2樓看台前排王位區',
+        price: 'NT$ 4,800',
+        pos: { x: 0, y: 7.5, z: 17.5 },
+        lookAt: { x: 0, y: 2.6, z: -5.0 },
+        desc: '📍 <b>2樓看台正中央王位</b>：全場視野最均衡，能同時將搖滾區數百支 MIXXSTICK 鯨魚手燈海與雙舞台盡收眼底。',
+        reverb: 0.35
+      },
+      balcony_3f: {
+        name: '3樓看台山頂氣氛區',
+        price: 'NT$ 2,800',
+        pos: { x: 11.5, y: 13.5, z: 24.5 },
+        lookAt: { x: 0, y: 3.0, z: -6.0 },
+        desc: '📍 <b>3樓山頂氣氛組視角</b>：高空俯瞰壯觀的全場中控波浪燈海，建議搭配右上角「10x 飯拍神器」拉近看大螢幕與舞台！',
+        reverb: 0.55
+      }
+    };
+
+    // 6位成員資料與代表色
+    const MEMBERS = [
+      { name: 'LILY', kr: '릴리', color: 0x38bdf8, offset: -3.0 },
+      { name: 'HAEWON', kr: '해원', color: 0xf8fafc, offset: -1.8 },
+      { name: 'SULLYOON', kr: '설윤', color: 0xf472b6, offset: -0.6 },
+      { name: 'BAE', kr: '배이', color: 0xfacc15, offset: 0.6 },
+      { name: 'JIWOO', kr: '지우', color: 0xef4444, offset: 1.8 },
+      { name: 'KYUJIN', kr: '규진', color: 0xc084fc, offset: 3.0 }
+    ];
+
+    /**************************************************************
+     * 3. 全域狀態與 Web Audio API 現場音訊合成器
+     **************************************************************/
+    let currentSong = SONGS[0];
+    let currentSeatKey = 'vip_pit';
+    let currentChantIdx = 0;
+    let lightMode = 'ocean'; // 'ocean' | 'wave' | 'mixxpop' | 'member'
+    let isChangeUpActive = false;
+    let cheerBoost = 0;
+    let cameraZoom = 1;
+    let targetCameraPos = { ...SEATS.vip_pit.pos };
+    let targetLookAt = { ...SEATS.vip_pit.lookAt };
+    let yawOffset = 0, pitchOffset = 0;
+
+    // Web Audio API 狀態
+    let audioCtx = null;
+    let isAudioPlaying = false;
+    let beatStep = 0;
+    let nextNoteTime = 0;
+
+    function initAudio() {
+      if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContext();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    // 播放合成鼓點與 Bass (呈現演唱會重低音臨場感)
+    function playConcertBeat(step, time) {
+      if (!audioCtx || !isAudioPlaying) return;
+
+      const isKick = step % 2 === 0;
+      const isSnare = step % 4 === 2;
+
+      // 1. 演唱會重低音大鼓 (Sub Kick)
+      if (isKick) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.frequency.setValueAtTime(isChangeUpActive ? 135 : 110, time);
+        osc.frequency.exponentialRampToValueAtTime(32, time + 0.14);
+        gain.gain.setValueAtTime(0.38, time);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.16);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(time);
+        osc.stop(time + 0.17);
+      }
+
+      // 2. 小鼓拍點 (Snare / Clap)
+      if (isSnare) {
+        const bufferSize = audioCtx.sampleRate * 0.08;
+        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 900;
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.18, time);
+        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.08);
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+        noise.start(time);
+      }
+
+      // 3. MIXX POP 合成 Bassline
+      const noteFreq = currentSong.bassNotes[step % currentSong.bassNotes.length] * (isChangeUpActive ? 1.5 : 1);
+      const bassOsc = audioCtx.createOscillator();
+      const bassFilter = audioCtx.createBiquadFilter();
+      const bassGain = audioCtx.createGain();
+      bassOsc.type = isChangeUpActive ? 'sawtooth' : 'triangle';
+      bassOsc.frequency.setValueAtTime(noteFreq, time);
+      bassFilter.type = 'lowpass';
+      bassFilter.frequency.setValueAtTime(isChangeUpActive ? 1200 : 520, time);
+      bassGain.gain.setValueAtTime(0.16, time);
+      bassGain.gain.exponentialRampToValueAtTime(0.008, time + 0.2);
+
+      bassOsc.connect(bassFilter);
+      bassFilter.connect(bassGain);
+      bassGain.connect(audioCtx.destination);
+      bassOsc.start(time);
+      bassOsc.stop(time + 0.22);
+    }
+
+    // 播放 NSWER 應援歡呼音效
+    function playCrowdCheerSound(isChangeUp = false) {
+      initAudio();
+      if (!audioCtx) return;
+
+      const now = audioCtx.currentTime;
+      const duration = isChangeUp ? 1.4 : 0.65;
+      const bufferSize = Math.floor(audioCtx.sampleRate * duration);
+      const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufferSize) * Math.PI);
+      }
+
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+
+      const bandpass = audioCtx.createBiquadFilter();
+      bandpass.type = 'bandpass';
+      bandpass.frequency.setValueAtTime(isChangeUp ? 1150 : 850, now);
+      bandpass.Q.value = 1.8;
+
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.28, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+      noise.connect(bandpass);
+      bandpass.connect(gain);
+      gain.connect(audioCtx.destination);
+      noise.start(now);
+
+      // 疊加應援口號高亢合成音
+      const chantOsc = audioCtx.createOscillator();
+      const chantGain = audioCtx.createGain();
+      chantOsc.type = 'sawtooth';
+      chantOsc.frequency.setValueAtTime(isChangeUp ? 523.25 : 440, now);
+      chantOsc.frequency.exponentialRampToValueAtTime(isChangeUp ? 659.25 : 493.88, now + 0.25);
+      chantGain.gain.setValueAtTime(0.08, now);
+      chantGain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      chantOsc.connect(chantGain);
+      chantGain.connect(audioCtx.destination);
+      chantOsc.start(now);
+      chantOsc.stop(now + 0.32);
+    }
+
+    function toggleAudio() {
+      initAudio();
+      isAudioPlaying = !isAudioPlaying;
+      const btn = document.getElementById('audio-toggle-btn');
+      if (isAudioPlaying) {
+        nextNoteTime = audioCtx.currentTime;
+        btn.textContent = '🔊 現場音效：開啟';
+        btn.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition';
+      } else {
+        btn.textContent = '🔇 現場音效：靜音';
+        btn.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-700 text-slate-300 hover:bg-slate-600 transition';
+      }
+    }
+
+    /**************************************************************
+     * 4. Three.js 3D 演唱會場館、成員、觀眾與 MIXXSTICK 建模
+     **************************************************************/
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x030614);
+    scene.fog = new THREE.FogExp2(0x030614, 0.015);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    // 燈光系統
+    const ambientLight = new THREE.AmbientLight(0x1e293b, 1.3);
+    scene.add(ambientLight);
+
+    const stageSpotLight1 = new THREE.SpotLight(0x00d2ff, 4, 45, Math.PI / 4, 0.5);
+    stageSpotLight1.position.set(-8, 14, -4);
+    scene.add(stageSpotLight1);
+
+    const stageSpotLight2 = new THREE.SpotLight(0xff1e56, 4, 45, Math.PI / 4, 0.5);
+    stageSpotLight2.position.set(8, 14, -4);
+    scene.add(stageSpotLight2);
+
+    // 建立主舞台與延伸舞台 (T字型舞台)
+    const stageGroup = new THREE.Group();
+    scene.add(stageGroup);
+
+    // 主舞台底座
+    const mainStageGeo = new THREE.BoxGeometry(20, 1.4, 8);
+    const stageMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.2, metalness: 0.8 });
+    const mainStage = new THREE.Mesh(mainStageGeo, stageMat);
+    mainStage.position.set(0, 0.7, -9);
+    stageGroup.add(mainStage);
+
+    // 延伸舞台道 (Runway) & 延伸小舞台 (Extended Stage)
+    const runwayGeo = new THREE.BoxGeometry(3.6, 1.35, 9);
+    const runway = new THREE.Mesh(runwayGeo, stageMat);
+    runway.position.set(0, 0.675, -1);
+    stageGroup.add(runway);
+
+    const extStageGeo = new THREE.CylinderGeometry(3.8, 3.8, 1.38, 32);
+    const extStage = new THREE.Mesh(extStageGeo, stageMat);
+    extStage.position.set(0, 0.69, 3.2);
+    stageGroup.add(extStage);
+
+    // 舞台發光 LED 邊條
+    const ledEdgeMat = new THREE.MeshBasicMaterial({ color: 0x00d2ff });
+    const extRingGeo = new THREE.RingGeometry(3.55, 3.78, 32);
+    const extRing = new THREE.Mesh(extRingGeo, ledEdgeMat);
+    extRing.rotation.x = -Math.PI / 2;
+    extRing.position.set(0, 1.39, 3.2);
+    stageGroup.add(extRing);
+
+    // 動態繪製巨型主舞台 LED 大螢幕與兩側轉播大螢幕 (給3F山頂觀眾看特寫)
+    const ledCanvas = document.createElement('canvas');
+    ledCanvas.width = 1024;
+    ledCanvas.height = 512;
+    const ledCtx = ledCanvas.getContext('2d');
+    const ledTexture = new THREE.CanvasTexture(ledCanvas);
+
+    const mainScreenMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(18, 7.5),
+      new THREE.MeshBasicMaterial({ map: ledTexture })
+    );
+    mainScreenMesh.position.set(0, 5.2, -12.8);
+    stageGroup.add(mainScreenMesh);
+
+    // 左右兩側 IMAX 轉播斜幕
+    const leftScreen = new THREE.Mesh(
+      new THREE.PlaneGeometry(6.5, 4.2),
+      new THREE.MeshBasicMaterial({ map: ledTexture })
+    );
+    leftScreen.position.set(-12.5, 5.8, -10.5);
+    leftScreen.rotation.y = 0.35;
+    stageGroup.add(leftScreen);
+
+    const rightScreen = new THREE.Mesh(
+      new THREE.PlaneGeometry(6.5, 4.2),
+      new THREE.MeshBasicMaterial({ map: ledTexture })
+    );
+    rightScreen.position.set(12.5, 5.8, -10.5);
+    rightScreen.rotation.y = -0.35;
+    stageGroup.add(rightScreen);
+
+    // 舞台雷射光束群
+    const laserBeams = [];
+    const laserMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.35,
+      blending: THREE.AdditiveBlending
+    });
+    for (let i = 0; i < 8; i++) {
+      const coneGeo = new THREE.ConeGeometry(1.8, 28, 16, 1, true);
+      const beam = new THREE.Mesh(coneGeo, laserMat.clone());
+      beam.position.set(-10.5 + i * 3, 9.2, -11.5);
+      beam.rotation.x = Math.PI / 2.6;
+      scene.add(beam);
+      laserBeams.push(beam);
+    }
+
+    // 建立 NMIXX 6位成員 3D 舞台模型與名牌
+    const memberMeshes = [];
+    const memberGroup = new THREE.Group();
+    scene.add(memberGroup);
+
+    function createMemberNameSprite(name, kr, hexColor) {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 96;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+      ctx.roundRect(16, 12, 224, 72, 18);
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#' + hexColor.toString(16).padStart(6, '0');
+      ctx.stroke();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '900 28px Montserrat, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${name} (${kr})`, 128, 58);
+
+      const tex = new THREE.CanvasTexture(c);
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+      sprite.scale.set(1.4, 0.52, 1);
+      return sprite;
+    }
+
+    MEMBERS.forEach((m, idx) => {
+      const g = new THREE.Group();
+      // 身體與舞台打歌服光澤
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.22, 0.28, 1.15, 16),
+        new THREE.MeshStandardMaterial({ color: m.color, emissive: m.color, emissiveIntensity: 0.35, roughness: 0.3 })
+      );
+      body.position.y = 0.6;
+      g.add(body);
+
+      // 頭部
+      const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.21, 16, 16),
+        new THREE.MeshStandardMaterial({ color: 0xffe4e6 })
+      );
+      head.position.y = 1.38;
+      g.add(head);
+
+      // 手持麥克風
+      const mic = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.03, 0.03, 0.25, 8),
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+      );
+      mic.position.set(0.18, 1.12, 0.2);
+      mic.rotation.x = Math.PI / 4;
+      g.add(mic);
+
+      // 頭頂成員名牌
+      const label = createMemberNameSprite(m.name, m.kr, m.color);
+      label.position.y = 1.95;
+      g.add(label);
+
+      // 預設站位在延伸舞台與主舞台交界
+      g.position.set(m.offset * 0.75, 1.4, 2.2 - Math.abs(idx - 2.5) * 0.45);
+      memberGroup.add(g);
+      memberMeshes.push({ group: g, data: m, baseOffset: m.offset });
+    });
+
+    /**************************************************************
+     * 5. 打造專屬 3D MIXXSTICK (鯨魚水波手燈工廠函式)
+     **************************************************************/
+    function createMixxstickMesh(isFirstPerson = false) {
+      const stickGroup = new THREE.Group();
+      const scale = isFirstPerson ? 1.0 : 0.38;
+
+      // 1. 純白流線握把 (Handle)
+      const handleGeo = new THREE.CylinderGeometry(0.08 * scale, 0.065 * scale, 0.75 * scale, 16);
+      const handleMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.25 });
+      const handle = new THREE.Mesh(handleGeo, handleMat);
+      handle.position.y = -0.35 * scale;
+      stickGroup.add(handle);
+
+      // 握把銀色頸環與按鈕
+      const ringGeo = new THREE.CylinderGeometry(0.095 * scale, 0.095 * scale, 0.08 * scale, 16);
+      const ringMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.2 });
+      const neckRing = new THREE.Mesh(ringGeo, ringMat);
+      neckRing.position.y = 0.03 * scale;
+      stickGroup.add(neckRing);
+
+      // 2. 透明球型燈罩 (Transparent Globe)
+      const globeGeo = new THREE.SphereGeometry(0.32 * scale, 24, 24);
+      const globeMat = new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.32,
+        roughness: 0.05,
+        transmission: 0.6
+      });
+      const globe = new THREE.Mesh(globeGeo, globeMat);
+      globe.position.y = 0.36 * scale;
+      stickGroup.add(globe);
+
+      // 3. 內部深海藍水波核心 (Inner Ocean Wave Core)
+      const waterGeo = new THREE.SphereGeometry(0.26 * scale, 16, 16, 0, Math.PI * 2, Math.PI * 0.42, Math.PI * 0.58);
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: 0x00d2ff,
+        transparent: true,
+        opacity: 0.88
+      });
+      const waterCore = new THREE.Mesh(waterGeo, glowMat);
+      waterCore.position.y = 0.36 * scale;
+      stickGroup.add(waterCore);
+
+      // 4. 球體中央標誌性的發光鯨魚 (Whale Silhouette inside MIXXSTICK)
+      const whaleGroup = new THREE.Group();
+      const whaleBody = new THREE.Mesh(
+        new THREE.SphereGeometry(0.11 * scale, 12, 12),
+        glowMat
+      );
+      whaleBody.scale.set(1.6, 0.85, 0.9);
+      whaleGroup.add(whaleBody);
+
+      const whaleTail = new THREE.Mesh(
+        new THREE.ConeGeometry(0.09 * scale, 0.14 * scale, 4),
+        glowMat
+      );
+      whaleTail.position.set(-0.16 * scale, 0.05 * scale, 0);
+      whaleTail.rotation.z = Math.PI / 3;
+      whaleGroup.add(whaleTail);
+
+      whaleGroup.position.y = 0.41 * scale;
+      stickGroup.add(whaleGroup);
+
+      return { group: stickGroup, glowMat, whaleGroup };
+    }
+
+    // 建立玩家第一人稱右下角手持的 MIXXSTICK
+    const playerStick = createMixxstickMesh(true);
+    scene.add(playerStick.group);
+
+    // 建立全場觀眾與每個人手上的 MIXXSTICK (搖滾區 + 2F看台 + 3F山頂區)
+    const audienceSticks = [];
+    const audienceGroup = new THREE.Group();
+    scene.add(audienceGroup);
+
+    function populateAudienceZone(rows, cols, startZ, rowSpacing, colSpacing, baseY, slopeY, isCurved) {
+      const headGeo = new THREE.SphereGeometry(0.22, 8, 8);
+      const headMat = new THREE.MeshLambertMaterial({ color: 0x0f172a });
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const normX = (c / (cols - 1)) - 0.5;
+          const x = normX * cols * colSpacing;
+          // 避開延伸舞台中央區域
+          if (startZ < 5 && Math.abs(x) < 4.4 && r < 6) continue;
+
+          const curveZ = isCurved ? Math.pow(normX * 2, 2) * 3.5 : 0;
+          const z = startZ + r * rowSpacing + curveZ;
+          const y = baseY + r * slopeY;
+
+          // 觀眾頭影
+          const personHead = new THREE.Mesh(headGeo, headMat);
+          personHead.position.set(x, y, z);
+          audienceGroup.add(personHead);
+
+          // 每個觀眾手上的 MIXXSTICK
+          const stickObj = createMixxstickMesh(false);
+          stickObj.group.position.set(x + 0.24, y + 0.35, z - 0.12);
+          audienceGroup.add(stickObj.group);
+
+          audienceSticks.push({
+            mesh: stickObj.group,
+            glowMat: stickObj.glowMat,
+            baseY: y + 0.35,
+            x,
+            z,
+            phase: Math.random() * Math.PI * 2,
+            memberColor: MEMBERS[(r + c) % MEMBERS.length].color
+          });
+        }
+      }
+    }
+
+    // 生成：1. VIP 搖滾區觀眾、2. 二樓看台觀眾、3. 三樓山頂觀眾
+    populateAudienceZone(9, 22, -2.5, 1.35, 1.25, 0.9, 0.04, false);
+    populateAudienceZone(6, 26, 12.5, 1.4, 1.35, 4.2, 0.65, true);
+    populateAudienceZone(5, 30, 21.0, 1.5, 1.45, 9.5, 0.85, true);
+
+    // 漫天彩帶粒子系統 (Confetti System)
+    const confettiCount = 320;
+    const confettiGeo = new THREE.BufferGeometry();
+    const confettiPositions = new Float32Array(confettiCount * 3);
+    const confettiColors = new Float32Array(confettiCount * 3);
+    const confettiVel = [];
+
+    for (let i = 0; i < confettiCount; i++) {
+      confettiPositions[i * 3] = (Math.random() - 0.5) * 28;
+      confettiPositions[i * 3 + 1] = Math.random() * 18 + 2;
+      confettiPositions[i * 3 + 2] = (Math.random() - 0.5) * 24 - 2;
+      confettiVel.push({
+        vy: -(0.03 + Math.random() * 0.05),
+        vx: (Math.random() - 0.5) * 0.04
+      });
+      const col = new THREE.Color().setHSL(Math.random(), 0.9, 0.6);
+      confettiColors[i * 3] = col.r;
+      confettiColors[i * 3 + 1] = col.g;
+      confettiColors[i * 3 + 2] = col.b;
+    }
+    confettiGeo.setAttribute('position', new THREE.BufferAttribute(confettiPositions, 3));
+    confettiGeo.setAttribute('color', new THREE.BufferAttribute(confettiColors, 3));
+    const confettiPoints = new THREE.Points(
+      confettiGeo,
+      new THREE.PointsMaterial({ size: 0.24, vertexColors: true, transparent: true, opacity: 0.9 })
+    );
+    scene.add(confettiPoints);
+
+    /**************************************************************
+     * 6. UI 互動控制函式 (選位、切歌、手燈中控、應援吶喊)
+     **************************************************************/
+    function selectSeat(seatKey) {
+      currentSeatKey = seatKey;
+      const seat = SEATS[seatKey];
+      targetCameraPos = { ...seat.pos };
+      targetLookAt = { ...seat.lookAt };
+      yawOffset = 0;
+      pitchOffset = 0;
+
+      document.getElementById('current-seat-badge').textContent = `${seat.name} (${seat.price})`;
+      document.getElementById('seat-desc').innerHTML = seat.desc;
+
+      // 更新座位圖按鈕高亮
+      Object.keys(SEATS).forEach(k => {
+        const btn = document.getElementById(`map-${k}`);
+        if (!btn) return;
+        if (k === seatKey) {
+          btn.classList.add('ring-2', 'ring-white', 'scale-[1.02]');
+        } else {
+          btn.classList.remove('ring-2', 'ring-white', 'scale-[1.02]');
+        }
+      });
+    }
+
+    function setZoom(zoomFactor) {
+      cameraZoom = zoomFactor;
+      camera.fov = 60 / zoomFactor;
+      camera.updateProjectionMatrix();
+
+      [
+        { id: 'zoom-1', val: 1 },
+        { id: 'zoom-2', val: 2.2 },
+        { id: 'zoom-3', val: 4.5 }
+      ].forEach(z => {
+        const el = document.getElementById(z.id);
+        if (Math.abs(z.val - zoomFactor) < 0.1) {
+          el.className = 'px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-400 text-slate-950 transition';
+        } else {
+          el.className = 'px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition';
+        }
+      });
+    }
+
+    function selectSong(songId) {
+      const found = SONGS.find(s => s.id === songId);
+      if (!found) return;
+      currentSong = found;
+      currentChantIdx = 0;
+      isChangeUpActive = false;
+      updateChantUI();
+      renderSongList();
+    }
+
+    function updateChantUI() {
+      const chant = currentSong.chants[currentChantIdx];
+      document.getElementById('now-playing-title').textContent = `🎵 正在演出：${currentSong.title} · ${currentSong.album} (BPM: ${currentSong.bpm})`;
+      document.getElementById('song-section-badge').textContent = chant.section;
+      const mainEl = document.getElementById('fanchant-main');
+      mainEl.textContent = chant.kr;
+      document.getElementById('fanchant-sub').textContent = chant.sub;
+
+      if (chant.isChangeUp || isChangeUpActive) {
+        mainEl.className = 'text-xl md:text-3xl font-black tracking-wide text-rose-300 changeup-glow transition-all duration-150 scale-105';
+      } else {
+        mainEl.className = 'text-xl md:text-3xl font-black tracking-wide text-white fanchant-glow transition-all duration-150';
+      }
+    }
+
+    function renderSongList() {
+      const listEl = document.getElementById('song-list');
+      listEl.innerHTML = SONGS.map(s => {
+        const active = s.id === currentSong.id;
+        return `
+          <button onclick="selectSong('${s.id}')" class="w-full text-left px-3 py-2 rounded-xl flex items-center justify-between transition ${
+            active
+              ? 'bg-gradient-to-r from-cyan-500/30 to-blue-600/30 border border-cyan-400 text-white'
+              : 'bg-slate-900/60 hover:bg-slate-800/80 text-slate-300 border border-transparent'
+          }">
+            <div>
+              <div class="text-xs font-black">${s.title}</div>
+              <div class="text-[10px] text-slate-400">${s.album} · ${s.chants.length} 段應援</div>
+            </div>
+            <span class="text-[10px] px-2 py-0.5 rounded font-bold ${active ? 'bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-400'}">
+              ${s.bpm} BPM
+            </span>
+          </button>
+        `;
+      }).join('');
+    }
+
+    function setLightMode(mode) {
+      lightMode = mode;
+      ['ocean', 'wave', 'mixxpop', 'member'].forEach(m => {
+        const btn = document.getElementById(`mode-${m}`);
+        if (m === mode) {
+          btn.className = 'py-1.5 px-2 rounded-lg font-bold bg-cyan-500 text-slate-950 transition';
+        } else {
+          btn.className = 'py-1.5 px-2 rounded-lg font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition';
+        }
+      });
+    }
+
+    // 觸發應援吶喊與揮動手燈
+    function triggerCheer() {
+      cheerBoost = 1.0;
+      playCrowdCheerSound(false);
+      // 推進應援詞段落
+      currentChantIdx = (currentChantIdx + 1) % currentSong.chants.length;
+      if (currentSong.chants[currentChantIdx].isChangeUp) {
+        isChangeUpActive = true;
+        setLightMode('mixxpop');
+      } else {
+        isChangeUpActive = false;
+      }
+      updateChantUI();
+    }
+
+    // 觸發 NMIXX CHANGE UP! 曲風拼接爆閃與彩帶噴發
+    function triggerChangeUp() {
+      isChangeUpActive = !isChangeUpActive;
+      cheerBoost = 1.4;
+      playCrowdCheerSound(true);
+      setLightMode(isChangeUpActive ? 'mixxpop' : 'ocean');
+
+      // 將彩帶重新由舞台上方噴出
+      const posAttr = confettiGeo.attributes.position;
+      for (let i = 0; i < confettiCount; i++) {
+        posAttr.setXYZ(
+          i,
+          (Math.random() - 0.5) * 18,
+          Math.random() * 6 + 6,
+          (Math.random() - 0.5) * 14 - 1
+        );
+      }
+      posAttr.needsUpdate = true;
+
+      // 跳至該曲目的 CHANGE UP 應援段落
+      const cuIdx = currentSong.chants.findIndex(c => c.isChangeUp);
+      if (cuIdx !== -1) currentChantIdx = cuIdx;
+      updateChantUI();
+    }
+
+    // 鍵盤空白鍵應援支援
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        triggerCheer();
+      }
+    });
+
+    // 滑鼠與觸控拖曳環視視角
+    let isDragging = false;
+    let prevX = 0, prevY = 0;
+    window.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.glass-panel') || e.target.tagName === 'BUTTON') return;
+      isDragging = true;
+      prevX = e.clientX;
+      prevY = e.clientY;
+    });
+    window.addEventListener('pointermove', (e) => {
+      if (!isDragging) return;
+      const dx = e.clientX - prevX;
+      const dy = e.clientY - prevY;
+      prevX = e.clientX;
+      prevY = e.clientY;
+      yawOffset -= dx * 0.0035;
+      pitchOffset = Math.max(-0.45, Math.min(0.45, pitchOffset - dy * 0.003));
+    });
+    window.addEventListener('pointerup', () => { isDragging = false; });
+
+    /**************************************************************
+     * 7. 更新舞台大螢幕 Canvas 與主動畫迴圈
+     **************************************************************/
+    function updateStageLEDCanvas(time) {
+      const w = ledCanvas.width;
+      const h = ledCanvas.height;
+      const grad = ledCtx.createLinearGradient(0, 0, w, h);
+      if (isChangeUpActive) {
+        grad.addColorStop(0, '#be123c');
+        grad.addColorStop(0.5, '#7e22ce');
+        grad.addColorStop(1, '#0f172a');
+      } else {
+        grad.addColorStop(0, '#020617');
+        grad.addColorStop(0.5, '#0369a1');
+        grad.addColorStop(1, '#1e1b4b');
+      }
+      ledCtx.fillStyle = grad;
+      ledCtx.fillRect(0, 0, w, h);
+
+      // 動態聲波條
+      ledCtx.fillStyle = isChangeUpActive ? 'rgba(251, 113, 133, 0.45)' : 'rgba(56, 189, 248, 0.4)';
+      for (let i = 0; i < 32; i++) {
+        const barH = Math.abs(Math.sin(time * 6 + i * 0.45)) * 220 + 30;
+        ledCtx.fillRect(40 + i * 29, h - barH, 18, barH);
+      }
+
+      // 巨型 NMIXX 曲名與應援字卡
+      ledCtx.fillStyle = '#ffffff';
+      ledCtx.font = '900 78px Montserrat, sans-serif';
+      ledCtx.textAlign = 'center';
+      ledCtx.fillText(isChangeUpActive ? 'NMIXX CHANGE UP!' : `NMIXX - ${currentSong.title}`, w / 2, 195);
+
+      ledCtx.fillStyle = '#38bdf8';
+      ledCtx.font = '700 40px "Noto Sans TC", sans-serif';
+      const currentChant = currentSong.chants[currentChantIdx];
+      ledCtx.fillText(currentChant.kr, w / 2, 290);
+
+      ledCtx.fillStyle = '#facc15';
+      ledCtx.font = '700 28px "Noto Sans TC", sans-serif';
+      ledCtx.fillText(`📍 現場轉播 CAM · ${MEMBERS[Math.floor(time * 0.8) % MEMBERS.length].name} 特寫`, w / 2, 370);
+
+      ledTexture.needsUpdate = true;
+    }
+
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const elapsed = clock.getElapsedTime();
+      const bpmFreq = (currentSong.bpm / 60) * Math.PI * 2;
+      const beatPulse = Math.sin(elapsed * bpmFreq);
+
+      // Web Audio API 節拍排程器
+      if (isAudioPlaying && audioCtx) {
+        const secondsPerBeat = 60.0 / currentSong.bpm / 2;
+        while (nextNoteTime < audioCtx.currentTime + 0.1) {
+          playConcertBeat(beatStep, nextNoteTime);
+          nextNoteTime += secondsPerBeat;
+          beatStep++;
+        }
+      }
+
+      // 更新提詞機節拍進度條
+      const beatPercent = ((elapsed * (currentSong.bpm / 60)) % 4) / 4 * 100;
+      document.getElementById('beat-progress').style.width = `${beatPercent}%`;
+
+      // 1. 平滑更新相機位置與視角
+      camera.position.lerp(new THREE.Vector3(targetCameraPos.x, targetCameraPos.y, targetCameraPos.z), 0.08);
+      const lookVec = new THREE.Vector3(
+        targetLookAt.x + Math.sin(yawOffset) * 12,
+        targetLookAt.y + pitchOffset * 10,
+        targetLookAt.z
+      );
+      camera.lookAt(lookVec);
+
+      // 2. 更新第一人稱右下角手持 MIXXSTICK 位置與揮動動畫
+      cheerBoost = Math.max(0, cheerBoost - 0.025);
+      const camDir = new THREE.Vector3();
+      camera.getWorldDirection(camDir);
+      const camRight = new THREE.Vector3().crossVectors(camDir, camera.up).normalize();
+      const camUp = new THREE.Vector3().crossVectors(camRight, camDir).normalize();
+
+      const swingAngle = Math.sin(elapsed * bpmFreq * 0.5) * (0.28 + cheerBoost * 0.65);
+      playerStick.group.position.copy(camera.position)
+        .add(camDir.clone().multiplyScalar(1.25))
+        .add(camRight.clone().multiplyScalar(0.55))
+        .add(camUp.clone().multiplyScalar(-0.38 + Math.abs(swingAngle) * 0.15));
+
+      playerStick.group.quaternion.copy(camera.quaternion);
+      playerStick.group.rotateX(swingAngle - 0.25);
+      playerStick.group.rotateZ(-0.15);
+      // 球體內的鯨魚微微浮動
+      playerStick.whaleGroup.position.y = 0.41 + Math.sin(elapsed * 4) * 0.025;
+
+      // 3. 更新全場觀眾 MIXXSTICK 中控顏色與節奏揮舞
+      const tempColor = new THREE.Color();
+      audienceSticks.forEach((st) => {
+        const waveVal = Math.sin(elapsed * bpmFreq * 0.5 + st.z * 0.25 + st.phase * 0.2);
+        st.mesh.position.y = st.baseY + Math.max(0, waveVal) * (0.14 + cheerBoost * 0.2);
+        st.mesh.rotation.x = waveVal * 0.35;
+
+        if (lightMode === 'ocean') {
+          tempColor.setHex(currentSong.baseColor);
+        } else if (lightMode === 'wave') {
+          const hue = ((st.x * 0.04 + st.z * 0.05 - elapsed * 0.35) % 1 + 1) % 1;
+          tempColor.setHSL(hue, 0.95, 0.55);
+        } else if (lightMode === 'mixxpop') {
+          const flash = Math.sin(elapsed * 18 + st.x) > 0;
+          tempColor.setHex(flash ? currentSong.changeUpColor : 0xffffff);
+        } else if (lightMode === 'member') {
+          tempColor.setHex(st.memberColor);
+        }
+        st.glowMat.color.copy(tempColor);
+      });
+      playerStick.glowMat.color.copy(tempColor);
+
+      // 4. 更新 NMIXX 6位成員舞台走位與舞蹈律動
+      memberMeshes.forEach((m, i) => {
+        const danceJump = Math.abs(Math.sin(elapsed * bpmFreq * 0.5 + i * 0.5)) * 0.22;
+        // 根據段落切換主舞台與延伸舞台隊形
+        const targetZ = isChangeUpActive ? 3.2 + Math.sin(elapsed + i) * 1.1 : 1.5 - Math.abs(i - 2.5) * 0.6;
+        const targetX = isChangeUpActive
+          ? Math.cos(elapsed * 0.8 + (i * Math.PI) / 3) * 2.2
+          : m.baseOffset * 0.8;
+
+        m.group.position.x += (targetX - m.group.position.x) * 0.05;
+        m.group.position.z += (targetZ - m.group.position.z) * 0.05;
+        m.group.position.y = 1.4 + danceJump;
+      });
+
+      // 5. 更新舞台雷射與彩帶飄落
+      laserBeams.forEach((b, idx) => {
+        b.rotation.z = Math.sin(elapsed * (isChangeUpActive ? 3.5 : 1.2) + idx) * 0.55;
+        b.material.color.setHex(isChangeUpActive ? currentSong.changeUpColor : currentSong.baseColor);
+      });
+
+      const posAttr = confettiGeo.attributes.position;
+      for (let i = 0; i < confettiCount; i++) {
+        let x = posAttr.getX(i) + confettiVel[i].vx;
+        let y = posAttr.getY(i) + confettiVel[i].vy;
+        let z = posAttr.getZ(i);
+        if (y < 0.5) y = 18;
+        posAttr.setXYZ(i, x, y, z);
+      }
+      posAttr.needsUpdate = true;
+
+      // 6. 更新大螢幕轉播畫面
+      updateStageLEDCanvas(elapsed);
+
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // 初始化執行
+    renderSongList();
+    selectSeat('vip_pit');
+    updateChantUI();
+    animate();
+  </script>
+</body>
+</html>
