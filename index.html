@@ -2,204 +2,232 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>NMIXX 林口體育館 3D 演唱會模擬器 | NTSU ARENA</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@700;900&family=Noto+Sans+TC:wght@400;700;900&display=swap');
+    * { -webkit-tap-highlight-color: transparent; }
     body {
       margin: 0;
       overflow: hidden;
       background-color: #02040a;
       font-family: 'Noto Sans TC', 'Montserrat', sans-serif;
       user-select: none;
+      touch-action: none;
     }
     #canvas-container {
       position: fixed;
       inset: 0;
       z-index: 1;
     }
-    .glass-panel {
-      background: rgba(8, 12, 24, 0.78);
-      backdrop-filter: blur(14px);
+    .glass-bar {
+      background: rgba(8, 12, 24, 0.72);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       border: 1px solid rgba(56, 189, 248, 0.28);
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
     }
     .fanchant-glow {
-      text-shadow: 0 0 14px rgba(56, 189, 248, 0.95), 0 0 28px rgba(14, 165, 233, 0.75);
+      text-shadow: 0 0 12px rgba(56, 189, 248, 0.95), 0 0 24px rgba(14, 165, 233, 0.75);
     }
     .changeup-glow {
-      text-shadow: 0 0 16px rgba(244, 63, 94, 1), 0 0 32px rgba(217, 70, 239, 0.9);
+      text-shadow: 0 0 14px rgba(244, 63, 94, 1), 0 0 28px rgba(217, 70, 239, 0.95);
     }
-    ::-webkit-scrollbar { width: 5px; }
-    ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.4); border-radius: 9999px; }
+    .chant-highlight {
+      color: #38bdf8;
+      font-weight: 900;
+    }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.45); border-radius: 9999px; }
   </style>
 </head>
 <body class="text-white">
 
-  <!-- 3D 場景容器 -->
+  <!-- 3D 渲染畫布 -->
   <div id="canvas-container"></div>
 
   <!-- 隱藏的原版音源播放器 -->
   <audio id="real-audio" crossorigin="anonymous" preload="auto"></audio>
 
-  <!-- 頂部：場館狀態列 & 應援提詞機 -->
-  <div class="fixed top-0 left-0 right-0 z-10 p-3 flex flex-col items-center pointer-events-none">
-    <div class="w-full max-w-6xl flex flex-wrap justify-between items-center gap-2 pointer-events-auto">
-      <!-- 場館名稱：林口體育館 -->
-      <div class="glass-panel px-4 py-2 rounded-2xl flex items-center gap-3">
-        <div class="w-3 h-3 rounded-full bg-cyan-400 animate-ping"></div>
+  <!-- 頂部精簡資訊與應援提詞機 (手機版高度極小化，不擋舞台) -->
+  <div id="top-hud" class="fixed top-0 left-0 right-0 z-10 p-2 md:p-3 flex flex-col items-center pointer-events-none transition-opacity duration-300">
+    
+    <!-- 頂部狀態列 -->
+    <div class="w-full max-w-5xl flex items-center justify-between gap-1.5 pointer-events-auto">
+      <div class="glass-bar px-2.5 py-1.5 rounded-xl flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
         <div>
-          <div class="text-[11px] text-cyan-300 font-bold tracking-widest">NTSU ARENA (LINKOU) · 15,000 SEATS</div>
-          <div class="text-sm md:text-base font-black tracking-tight">NMIXX FAN CONCERT — 林口體育館模擬器</div>
+          <div class="text-[9px] md:text-[10px] text-cyan-300 font-bold tracking-wider leading-none">LINKOU NTSU ARENA</div>
+          <div id="current-seat-badge" class="text-[11px] md:text-xs font-black text-white leading-tight mt-0.5">VIP 搖滾 A/B 區 ($6,800)</div>
         </div>
       </div>
 
-      <!-- 當前林口體育館分區與手機鏡頭焦段 -->
-      <div class="glass-panel px-4 py-2 rounded-2xl flex items-center gap-3">
-        <div>
-          <span class="text-[10px] text-slate-400 block">林口體育館目前區域</span>
-          <span id="current-seat-badge" class="text-xs md:text-sm font-black text-cyan-300">VIP 搖滾 A/B 延伸魚池區 (NT$ 6,800)</span>
-        </div>
-        <div class="h-7 w-[1px] bg-slate-700"></div>
-        <div class="flex items-center gap-1">
-          <span class="text-[11px] text-slate-400 mr-1">手機鏡頭:</span>
-          <button onclick="setZoom(1)" id="zoom-1" class="px-2 py-1 rounded-lg text-xs font-bold bg-cyan-400 text-slate-950 transition">1x 廣角</button>
-          <button onclick="setZoom(2.4)" id="zoom-2" class="px-2 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">3x 望遠</button>
-          <button onclick="setZoom(5.2)" id="zoom-3" class="px-2 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-amber-300 transition">S24U 10x 飯拍</button>
-        </div>
+      <!-- 手機鏡頭倍率 + 視角重置 + 純淨模式 -->
+      <div class="glass-bar px-2 py-1 rounded-xl flex items-center gap-1">
+        <button onclick="setZoom(1)" id="zoom-1" class="px-2 py-1 rounded-lg text-[11px] font-black bg-cyan-400 text-slate-950 transition">1x</button>
+        <button onclick="setZoom(2.3)" id="zoom-2" class="px-2 py-1 rounded-lg text-[11px] font-black bg-slate-800/90 text-slate-200 transition">3x</button>
+        <button onclick="setZoom(5.0)" id="zoom-3" class="px-2 py-1 rounded-lg text-[11px] font-black bg-slate-800/90 text-amber-300 transition">10x</button>
+        <div class="h-4 w-[1px] bg-slate-700 mx-0.5"></div>
+        <button onclick="resetViewCenter()" class="px-2 py-1 rounded-lg text-[11px] font-bold bg-slate-800/90 hover:bg-slate-700 text-cyan-200" title="重新對準舞台中央">🎯 對準舞台</button>
+        <button onclick="toggleCleanUI()" id="clean-ui-btn" class="px-2 py-1 rounded-lg text-[11px] font-bold bg-slate-800/90 hover:bg-slate-700 text-slate-300">👁️ 隱藏介面</button>
       </div>
     </div>
 
-    <!-- 應援提詞機與原曲時間軸 -->
-    <div class="mt-2.5 w-full max-w-3xl glass-panel rounded-2xl px-5 py-2.5 text-center border border-cyan-400/40 pointer-events-auto">
-      <div class="flex items-center justify-between text-xs text-slate-300 mb-1">
-        <div class="flex items-center gap-2">
-          <span id="audio-source-tag" class="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[10px] font-bold">原版串流音源待命</span>
-          <span id="now-playing-title" class="font-bold text-cyan-300">🎵 點擊下方歌單立即播放 NMIXX 原版音樂</span>
+    <!-- 官方應援提詞機 (FANS 認證應援法校對版) -->
+    <div id="teleprompter-box" class="mt-1.5 w-full max-w-2xl glass-bar rounded-2xl px-3.5 py-2 text-center border border-cyan-400/35 pointer-events-auto">
+      <div class="flex items-center justify-between text-[10px] text-slate-300 mb-0.5">
+        <div class="flex items-center gap-1.5 truncate">
+          <span id="audio-source-tag" class="px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-bold">官方原曲</span>
+          <span id="now-playing-title" class="font-bold text-cyan-300 truncate">DASH - Fe3O4: BREAK</span>
         </div>
-        <span id="song-section-badge" class="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-200 font-bold text-[11px]">六人本名應援</span>
+        <span id="song-section-badge" class="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-200 font-bold shrink-0">官方應援法</span>
       </div>
 
-      <!-- 韓文應援詞 -->
-      <div id="fanchant-main" class="text-lg md:text-2xl font-black tracking-wide text-white fanchant-glow transition-all duration-150">
+      <!-- 韓文應援詞 (黃色/青色括號內為 NSWER 大聲應援部分) -->
+      <div id="fanchant-main" class="text-sm sm:text-lg md:text-2xl font-black tracking-wide text-white fanchant-glow leading-snug transition-all duration-150">
         릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 엔믹스!
       </div>
-      <!-- 空耳提示 -->
-      <div id="fanchant-sub" class="text-xs text-cyan-200/90 font-semibold mt-0.5">
-        【空耳應援】Lily！吳海嫄！薛侖娥！Bae！金智友！張圭珍！NMIXX！
+      <!-- 空耳與應援拍點提示 -->
+      <div id="fanchant-sub" class="text-[11px] md:text-xs text-cyan-200/95 font-semibold mt-0.5 leading-tight">
+        🔊【大聲喊】莉莉！吳海嫄！薛侖娥！Bae！金智友！張圭珍！NMIXX！
       </div>
 
-      <!-- 音樂播放時間軸 -->
-      <div class="flex items-center gap-2 mt-2">
-        <span id="time-current" class="text-[10px] font-mono text-slate-400 w-8">0:00</span>
+      <!-- 音樂進度條 -->
+      <div class="flex items-center gap-2 mt-1.5">
+        <span id="time-current" class="text-[9px] font-mono text-slate-400 w-7">0:00</span>
         <div class="flex-1 bg-slate-800/90 h-1.5 rounded-full overflow-hidden cursor-pointer" onclick="seekAudio(event)">
-          <div id="audio-progress" class="bg-gradient-to-r from-cyan-400 via-blue-500 to-fuchsia-500 h-full w-0 transition-all duration-100"></div>
+          <div id="audio-progress" class="bg-gradient-to-r from-cyan-400 via-blue-500 to-fuchsia-500 h-full w-0"></div>
         </div>
-        <span id="time-total" class="text-[10px] font-mono text-slate-400 w-8">0:30</span>
+        <span id="time-total" class="text-[9px] font-mono text-slate-400 w-7">0:30</span>
       </div>
     </div>
   </div>
 
-  <!-- 左下角：林口體育館真實座位圖 & NMIXX 原版音樂播放器 -->
-  <div class="fixed left-3 md:left-4 bottom-3 z-10 w-80 max-w-[92vw] flex flex-col gap-2.5 pointer-events-auto">
+  <!-- 純淨模式下浮現的恢復按鈕 -->
+  <button id="restore-ui-btn" onclick="toggleCleanUI()" class="hidden fixed top-3 right-3 z-30 glass-bar px-3 py-1.5 rounded-xl text-xs font-black text-cyan-300 border border-cyan-400/50">
+    👁️ 顯示應援與選單
+  </button>
+
+  <!-- 底部收納式抽屜面板 (點擊下方按鈕才展開，手機完全不擋舞台) -->
+  <div id="bottom-hud" class="fixed bottom-0 left-0 right-0 z-20 flex flex-col items-center p-2 md:p-3 pointer-events-none transition-opacity duration-300">
     
-    <!-- 林口體育館 (NTSU Arena) 座位分區圖 -->
-    <div class="glass-panel rounded-2xl p-3">
-      <div class="flex items-center justify-between mb-1.5">
-        <span class="text-xs font-extrabold text-cyan-300">🏟️ 林口體育館座位分區圖</span>
-        <span class="text-[10px] text-slate-400">按住畫面拖曳可 360° 環視</span>
+    <!-- 展開式抽屜內容容器 -->
+    <div id="drawer-container" class="hidden w-full max-w-xl glass-bar rounded-2xl p-3 mb-2 pointer-events-auto border border-cyan-400/40 shadow-2xl max-h-[58vh] overflow-y-auto">
+      
+      <!-- 抽屜標題與關閉鈕 -->
+      <div class="flex items-center justify-between pb-2 mb-2 border-b border-slate-700/80">
+        <span id="drawer-title" class="text-xs font-black text-cyan-300 tracking-wider">🏟️ 林口體育館座位與視角選擇</span>
+        <button onclick="closeDrawer()" class="px-2.5 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 font-bold">✕ 收起面板</button>
       </div>
 
-      <!-- 林口體育館馬蹄形看台配置圖 -->
-      <div class="bg-slate-950/90 border border-slate-700/80 rounded-xl p-2 mb-2 flex flex-col items-center gap-1 text-[10px]">
-        <div class="w-4/5 py-1 bg-gradient-to-r from-blue-600 via-cyan-400 to-blue-600 text-center font-black rounded text-slate-950">
-          MAIN STAGE 主舞台 (北側)
+      <!-- 面板 1：林口體育館座位分區圖 + 座位範圍微調 -->
+      <div id="panel-seats" class="space-y-2.5">
+        <div class="bg-slate-950/90 border border-slate-700/80 rounded-xl p-2.5 flex flex-col items-center gap-1.5 text-[11px]">
+          <div class="w-4/5 py-1 bg-gradient-to-r from-blue-600 via-cyan-400 to-blue-600 text-center font-black rounded text-slate-950 text-[10px]">
+            MAIN STAGE 主舞台 (北側) + 巨型母架螢幕
+          </div>
+
+          <div class="grid grid-cols-3 gap-1.5 w-full items-center">
+            <button onclick="selectSeat('orange_2b', true)" id="map-orange_2b" class="py-2 rounded-l-xl bg-orange-500/30 border border-orange-400 text-orange-200 font-bold hover:bg-orange-500/50 transition leading-tight">
+              橙 2B 前排<br>左側神席<br><span class="text-[10px] text-white">$5,800</span>
+            </button>
+
+            <button onclick="selectSeat('vip_ab', true)" id="map-vip_ab" class="py-2.5 rounded bg-cyan-500/40 border-2 border-cyan-300 text-white font-black hover:bg-cyan-500/60 transition leading-tight">
+              VIP 搖滾 A/B<br>延伸魚池區<br><span class="text-[10px] text-cyan-200">$6,800</span>
+            </button>
+
+            <button onclick="selectSeat('blue_2b', true)" id="map-blue_2b" class="py-2 rounded-r-xl bg-sky-500/30 border border-sky-400 text-sky-200 font-bold hover:bg-sky-500/50 transition leading-tight">
+              藍 2B 前排<br>右側神席<br><span class="text-[10px] text-white">$5,800</span>
+            </button>
+          </div>
+
+          <div class="px-3 py-0.5 bg-slate-800 text-slate-400 rounded text-[9px] font-mono">
+            [FOH 音控/燈控黑帳篷區]
+          </div>
+
+          <button onclick="selectSeat('yellow_2c', true)" id="map-yellow_2c" class="w-11/12 py-1.5 rounded bg-yellow-500/30 border border-yellow-400 text-yellow-200 font-bold hover:bg-yellow-500/50 transition">
+            黃 2C 區 (正對舞台中央看台 · 控台後全景) NT$ 4,800
+          </button>
+
+          <button onclick="selectSeat('top_4f', true)" id="map-top_4f" class="w-full py-1.5 rounded-b-xl bg-purple-500/30 border border-purple-400 text-purple-200 font-bold hover:bg-purple-500/50 transition">
+            4F 橙4B / 藍4B 山頂區 (林口陡峭大斜坡) NT$ 2,800
+          </button>
         </div>
 
-        <!-- 中間層：左右看台 (藍2B / 橙2B) + 搖滾區 + 延伸舞台 -->
-        <div class="grid grid-cols-3 gap-1 w-full items-center my-0.5">
-          <button onclick="selectSeat('orange_2b')" id="map-orange_2b" class="py-2 rounded-l-xl bg-amber-500/25 border border-amber-400 text-amber-200 font-bold hover:bg-amber-500/45 transition leading-tight">
-            橙 2B 看台<br>前排王位<br><span class="text-[9px] text-white">$5,800</span>
-          </button>
-
-          <button onclick="selectSeat('vip_ab')" id="map-vip_ab" class="py-2.5 rounded bg-cyan-500/40 border-2 border-cyan-300 text-white font-black hover:bg-cyan-500/60 transition leading-tight">
-            VIP 搖滾 A/B<br>延伸魚池區<br><span class="text-[9px] text-cyan-200">$6,800</span>
-          </button>
-
-          <button onclick="selectSeat('blue_2b')" id="map-blue_2b" class="py-2 rounded-r-xl bg-sky-500/25 border border-sky-400 text-sky-200 font-bold hover:bg-sky-500/45 transition leading-tight">
-            藍 2B 看台<br>側面近距離<br><span class="text-[9px] text-white">$5,800</span>
-          </button>
+        <!-- 座位周圍走動與廣角視野微調控制 -->
+        <div class="bg-slate-900/80 rounded-xl p-2.5 border border-slate-700/70">
+          <div class="flex items-center justify-between text-[11px] mb-1.5">
+            <span class="font-bold text-cyan-300">🕹️ 座位周邊活動 / 橫移走位 (支援鍵盤 WASD)</span>
+            <button onclick="resetViewCenter()" class="text-[10px] text-amber-300 underline">回到座位中央</button>
+          </div>
+          <div class="grid grid-cols-4 gap-1.5 text-xs font-bold">
+            <button onclick="nudgeSeatPosition(-1.8, 0)" class="py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700">⬅️ 往左走</button>
+            <button onclick="nudgeSeatPosition(0, -1.5)" class="py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700">⬆️ 往前排靠</button>
+            <button onclick="nudgeSeatPosition(0, 1.5)" class="py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700">⬇️ 往後排退</button>
+            <button onclick="nudgeSeatPosition(1.8, 0)" class="py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700">➡️ 往右走</button>
+          </div>
+          <p id="seat-desc" class="text-[11px] text-slate-300 mt-2 leading-relaxed"></p>
         </div>
-
-        <!-- 南側正對面看台：黃 2C 區 -->
-        <button onclick="selectSeat('yellow_2c')" id="map-yellow_2c" class="w-11/12 py-1 rounded-b-lg bg-yellow-500/25 border border-yellow-400/80 text-yellow-200 font-bold hover:bg-yellow-500/40 transition">
-          黃 2C 區 (正對舞台中央看台 · 全景燈海) NT$ 4,800
-        </button>
-
-        <!-- 外圍高空：橙4B / 黃4C / 藍4B 山頂區 -->
-        <button onclick="selectSeat('top_4f')" id="map-top_4f" class="w-full py-1 rounded-b-xl bg-purple-500/25 border border-purple-400/70 text-purple-200 font-bold hover:bg-purple-500/40 transition">
-          4F 橙4B / 藍4B 山頂區 (林口大斜坡高空視野) NT$ 2,800
-        </button>
       </div>
 
-      <p id="seat-desc" class="text-[11px] text-slate-300 leading-snug">
-        📍 <b>林口 VIP 搖滾區</b>：緊貼 Y 字型延伸舞台，抬頭就是 6 位成員與上方巨型懸吊貓道燈架！
-      </p>
+      <!-- 面板 2：NMIXX 官方原版音源歌單與本機音檔載入 -->
+      <div id="panel-songs" class="hidden space-y-2">
+        <div id="song-list" class="grid grid-cols-1 sm:grid-cols-2 gap-1.5"></div>
+        <label class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-cyan-500/40 text-xs text-cyan-200 font-bold flex items-center justify-center gap-2 cursor-pointer transition">
+          <span>📂 載入手機 / 電腦中的完整原曲 MP3 / FLAC</span>
+          <input type="file" accept="audio/*" class="hidden" onchange="loadCustomAudioFile(event)" />
+        </label>
+      </div>
+
+      <!-- 面板 3：MIXXSTICK 中控燈效切換 -->
+      <div id="panel-lightstick" class="hidden space-y-2.5">
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-slate-300 font-bold">選擇林口全場 MIXXSTICK 中控燈效：</span>
+          <span id="bass-meter" class="font-mono text-emerald-300">BASS: 0%</span>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <button onclick="setLightMode('ocean')" id="mode-ocean" class="py-2.5 px-3 rounded-xl font-black bg-cyan-400 text-slate-950 transition">🌊 原版深海鯨魚藍</button>
+          <button onclick="setLightMode('wave')" id="mode-wave" class="py-2.5 px-3 rounded-xl font-black bg-slate-800 text-slate-200 transition">🌈 林口三色環場波浪</button>
+          <button onclick="setLightMode('mixxpop')" id="mode-mixxpop" class="py-2.5 px-3 rounded-xl font-black bg-slate-800 text-slate-200 transition">⚡ 音源重低音爆閃</button>
+          <button onclick="setLightMode('member')" id="mode-member" class="py-2.5 px-3 rounded-xl font-black bg-slate-800 text-slate-200 transition">💎 六人分區應援色</button>
+        </div>
+      </div>
     </div>
 
-    <!-- 原版音源曲目單 & 自訂完整 MP3 上傳 -->
-    <div class="glass-panel rounded-2xl p-3">
-      <div class="flex items-center justify-between mb-1.5">
-        <span class="text-xs font-extrabold text-cyan-300">💿 NMIXX 官方原版音源歌單</span>
-        <div class="flex items-center gap-1">
-          <button onclick="togglePlayPause()" id="play-pause-btn" class="px-2.5 py-0.5 rounded-full text-[11px] font-black bg-cyan-400 text-slate-950 hover:bg-cyan-300 transition">
-            ▶️ 播放原曲
-          </button>
-        </div>
-      </div>
+    <!-- 底部常駐微型操控列 (僅高 48px，手機完全不擋舞台) -->
+    <div class="w-full max-w-xl glass-bar rounded-2xl p-1.5 flex items-center justify-between gap-1.5 pointer-events-auto shadow-2xl">
+      <button onclick="toggleDrawer('seats')" id="tab-seats" class="flex-1 py-2 px-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-[11px] md:text-xs font-extrabold text-cyan-300 flex items-center justify-center gap-1 transition">
+        <span>🎫</span><span>換位子</span>
+      </button>
 
-      <!-- 曲目清單 -->
-      <div id="song-list" class="grid grid-cols-1 gap-1 max-h-36 overflow-y-auto pr-1 mb-2"></div>
+      <button onclick="toggleDrawer('songs')" id="tab-songs" class="flex-1 py-2 px-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-[11px] md:text-xs font-extrabold text-slate-200 flex items-center justify-center gap-1 transition">
+        <span>🎵</span><span>換歌曲</span>
+      </button>
 
-      <!-- 載入本機完整版 MP3 / FLAC 按鈕 -->
-      <label class="w-full py-1.5 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-600 text-[11px] text-slate-200 font-bold flex items-center justify-center gap-1.5 cursor-pointer transition">
-        <span>📂 載入本機完整原版 MP3 / FLAC 音檔</span>
-        <input type="file" id="custom-audio-input" accept="audio/*" class="hidden" onchange="loadCustomAudioFile(event)" />
-      </label>
-    </div>
-  </div>
+      <button onclick="togglePlayPause()" id="play-pause-btn" class="py-2 px-3 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 text-[11px] md:text-xs font-black transition shrink-0">
+        ▶️ 播放原曲
+      </button>
 
-  <!-- 右下角：原版 MIXXSTICK 雙按鈕控制與應援互動 -->
-  <div class="fixed right-3 md:right-5 bottom-3 z-10 flex flex-col items-end gap-2.5 pointer-events-auto">
-    <div class="glass-panel rounded-2xl p-3.5 w-72">
-      <div class="flex justify-between items-center mb-2">
-        <span class="text-xs font-extrabold text-cyan-300">🐋 官方原版 MIXXSTICK 中控</span>
-        <span id="bass-meter" class="text-[11px] font-mono text-emerald-300">BASS: 0 dB</span>
-      </div>
+      <button onclick="toggleDrawer('lightstick')" id="tab-lightstick" class="py-2 px-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-[11px] md:text-xs font-extrabold text-slate-200 transition" title="切換 MIXXSTICK 手燈中控">
+        🐋 手燈
+      </button>
 
-      <div class="grid grid-cols-2 gap-1.5 text-xs mb-2.5">
-        <button onclick="setLightMode('ocean')" id="mode-ocean" class="py-1.5 px-2 rounded-lg font-bold bg-cyan-400 text-slate-950 transition">🌊 原版深海鯨魚藍</button>
-        <button onclick="setLightMode('wave')" id="mode-wave" class="py-1.5 px-2 rounded-lg font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">🌈 林口環場彩虹浪</button>
-        <button onclick="setLightMode('mixxpop')" id="mode-mixxpop" class="py-1.5 px-2 rounded-lg font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">⚡ 音源重低音爆閃</button>
-        <button onclick="setLightMode('member')" id="mode-member" class="py-1.5 px-2 rounded-lg font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition">💎 六人分區應援色</button>
-      </div>
+      <button onclick="triggerCheer()" class="py-2 px-3 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-600 text-slate-950 font-black text-[11px] md:text-xs shadow active:scale-95 transition shrink-0">
+        📣 應援
+      </button>
 
-      <div class="flex gap-2">
-        <button onclick="triggerCheer()" class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-600 text-slate-950 font-black text-xs shadow-lg hover:brightness-110 active:scale-95 transition">
-          📣 應援吶喊 (Space)
-        </button>
-        <button onclick="triggerChangeUp()" class="px-3 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 via-fuchsia-500 to-indigo-500 text-white font-black text-xs shadow-lg hover:brightness-110 active:scale-95 transition">
-          🔥 CHANGE UP!
-        </button>
-      </div>
+      <button onclick="triggerChangeUp()" class="py-2 px-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-fuchsia-600 text-white font-black text-[11px] md:text-xs shadow active:scale-95 transition shrink-0">
+        🔥 噴火/彩帶
+      </button>
     </div>
   </div>
 
   <script>
     /*************************************************************************
-     * 1. NMIXX 原版曲目與 iTunes 官方音源檢索資料庫
+     * 1. JYP FANS 官方應援法 (응원법) 校對資料庫 + iTunes 官方原曲串流
+     *    - 括號內文字為 NSWER 必喊應援點
+     *    - 本名年齡序：릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 엔믹스!
      *************************************************************************/
     const SONGS = [
       {
@@ -211,10 +239,31 @@
         baseColor: 0x00d2ff,
         changeUpColor: 0xff1e56,
         chants: [
-          { time: 0, section: 'Intro 本名應援', kr: '릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 엔믹스!', sub: '【全場大聲】Lily！吳海嫄！薛侖娥！Bae！金智友！張圭珍！NMIXX！' },
-          { time: 7, section: 'Verse 律動', kr: 'Run it, run it! 묶인 채로 버려진 Road!', sub: '【重拍揮舞】跟著原曲 Bass 重拍用力揮動 MIXXSTICK！' },
-          { time: 14, section: '⚡ MIXX POP', kr: 'NMIXX! CHANGE UP! Let\'s go!', sub: '🔥【招牌轉折】全場齊喊 CHANGE UP！林口體育館雷射全開！', isChangeUp: true },
-          { time: 21, section: 'Chorus 副歌', kr: 'Dash! I wanna dash! (엔믹스!) 거침없이 달려가!', sub: '【副歌應援】在 Dash! 後面整齊大喊「NMIXX！」' }
+          {
+            time: 0,
+            section: 'Intro 官方應援',
+            kr: 'Dash, I wanna dash, I wanna run it <span class="chant-highlight">(Run it!)</span><br>릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 엔믹스!',
+            sub: '🔊【開場跟喊】喊完 (Run it!) 後接六人本名：莉莉！吳海嫄！薛侖娥！Bae！金智友！張圭珍！NMIXX！'
+          },
+          {
+            time: 7,
+            section: 'Verse 1 節拍應援',
+            kr: 'You can call me reckless <span class="chant-highlight">(Zigzag!)</span> 겁 없이 던진 road map <span class="chant-highlight">(Zigzag!)</span><br>날 막아선 barricade <span class="chant-highlight">(Nah, uh!)</span> 사뿐히 즈려밟고 가 <span class="chant-highlight">(We ride, we ride!)</span>',
+            sub: '🔊【括號處大聲喊】Zigzag! ➔ Zigzag! ➔ Nah, uh! ➔ We ride, we ride!'
+          },
+          {
+            time: 14,
+            section: '⚡ MIXX POP 轉折',
+            kr: '거친 박동은 danger, But take it to the max <span class="chant-highlight">(Hold me tight!)</span><br><span class="chant-highlight">NMIXX, CHANGE UP!</span> 세상에 신호탄을 쏘아 올려 <span class="chant-highlight">(Bang!)</span>',
+            sub: '🔥【Haewon 招牌口白】全場齊喊「NMIXX, CHANGE UP!」與「Bang!」噴發火焰與彩帶！',
+            isChangeUp: true
+          },
+          {
+            time: 21,
+            section: 'Chorus 副歌應援',
+            kr: 'I wanna dash, I wanna run it <span class="chant-highlight">(Run it!)</span><br>꿈꿔왔던 way, Dash, I wanna dash, I wanna run it <span class="chant-highlight">(엔믹스!)</span>',
+            sub: '🔊【副歌結尾】在最後一句 I wanna run it 後面整齊大喊「NMIXX (엔믹스)！」'
+          }
         ]
       },
       {
@@ -226,9 +275,25 @@
         baseColor: 0x38bdf8,
         changeUpColor: 0xfacc15,
         chants: [
-          { time: 0, section: 'Intro 口號', kr: 'See that? 별! 별! 별! (엔믹스!)', sub: '【節奏應援】See that? 星星星！(NMIXX!)' },
-          { time: 8, section: '六人應援', kr: '릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 별별별!', sub: '【六人本名】Lily！吳海嫄！薛侖娥！Bae！金智友！張圭珍！별별별！' },
-          { time: 16, section: '⚡ MIXX POP', kr: '내가 좀 별나서! (별! 별! 별!) See that!', sub: '🔥【副歌齊喊】別！別！別！(高舉鯨魚手燈連閃三下)', isChangeUp: true }
+          {
+            time: 0,
+            section: 'Intro 本名應援',
+            kr: '릴리! 오해원! 설윤아! 배이! 김지우! 장규진! <span class="chant-highlight">별! 별! 별!</span>',
+            sub: '🔊【開場口號】莉莉！吳海嫄！薛侖娥！Bae！金智友！張圭珍！別！別！別！'
+          },
+          {
+            time: 8,
+            section: 'Chorus 副歌應援',
+            kr: '<span class="chant-highlight">See that?</span> 별별별 <span class="chant-highlight">(별! 별! 별!)</span><br>내가 좀 별나서 <span class="chant-highlight">(별! 별! 별!)</span> 외계인 같대도 <span class="chant-highlight">(피융!)</span>',
+            sub: '🔊【副歌重點】跟著節奏連喊三次「별! 별! 별! (別!別!別!)」與外星雷射聲「피융 (Piyung)！」'
+          },
+          {
+            time: 17,
+            section: '⚡ MIXX POP 轉折',
+            kr: '작업실로 모여서 make a <span class="chant-highlight">(Boom!)</span><br>움츠렸던 어깨를 펴고 <span class="chant-highlight">(Jump! Jump!)</span> 엔믹스 별별별!',
+            sub: '🔥【曲風拼接】Old-school 嘻哈切換鄉村搖滾，全場跟著喊 Boom! 與 Jump! Jump!',
+            isChangeUp: true
+          }
         ]
       },
       {
@@ -240,9 +305,25 @@
         baseColor: 0x0ea5e9,
         changeUpColor: 0xec4899,
         chants: [
-          { time: 0, section: '開場歡呼', kr: '릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 엔믹스!', sub: '【開場應援】跟著清脆鼓點喊出六人本名！' },
-          { time: 10, section: 'Chorus 洗腦副歌', kr: 'Love me like this! (Hey!) Love me like that! (Ho!)', sub: '【萬人合唱】Love me like this, love me like that!' },
-          { time: 20, section: '⚡ 高音合音爆發', kr: '릴리! 설윤! 해원! 사! 랑! 해!', sub: '🔥【林口震撼全場】原曲超強轉音合音段落！', isChangeUp: true }
+          {
+            time: 0,
+            section: 'Intro 六人應援',
+            kr: '릴리! 오해원! 설윤아! 배이! 김지우! 장규진! <span class="chant-highlight">엔믹스!</span>',
+            sub: '🔊【開場歡呼】前奏鼓點一下立刻喊出六人本名 + NMIXX！'
+          },
+          {
+            time: 9,
+            section: 'Chorus 回音應援',
+            kr: 'Love me like this <span class="chant-highlight">(Love me like this!)</span><br>Love me like that <span class="chant-highlight">(Love me like that!)</span>',
+            sub: '🔊【官方回音應援】成員唱完立刻原句接唱：Love me like this! / Love me like that!'
+          },
+          {
+            time: 19,
+            section: '⚡ Bridge 清唱合音',
+            kr: '조금씩 번져가는 <span class="chant-highlight">(Love!)</span> 선명해져 가는 <span class="chant-highlight">(Light!)</span><br>無伴奏神級合音 ➔ <span class="chant-highlight">와아아아! 엔믹스!</span>',
+            sub: '🔥【現場高潮】Bridge 無伴奏合音結束瞬間，全場爆發最大分貝尖叫！',
+            isChangeUp: true
+          }
         ]
       },
       {
@@ -254,9 +335,25 @@
         baseColor: 0x6366f1,
         changeUpColor: 0x22d3ee,
         chants: [
-          { time: 0, section: 'Intro 號角', kr: 'Come a-come a-come a-come and夢想者!', sub: '【節奏揮燈】跟著拉丁嘻哈節拍左右擺動手燈！' },
-          { time: 12, section: '⚡ CHANGE UP', kr: 'NMIXX! CHANGE UP! Big wave,夢想的航道!', sub: '🔥【拼接轉折】曲風瞬間轉為清爽合成器流行！', isChangeUp: true },
-          { time: 20, section: 'Chorus', kr: 'Soñar! (엔믹스!) мечта! 릴리 오해원 설윤아 배이 김지우 장규진!', sub: '【副歌應援】全場鯨魚手燈爆閃！' }
+          {
+            time: 0,
+            section: 'Intro 口號應援',
+            kr: 'Come a-come a-come a-come and <span class="chant-highlight">(be my dreamer!)</span><br>릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 엔믹스!',
+            sub: '🔊【正確英文應援】大喊 (be my dreamer!) 後緊接六人本名應援！'
+          },
+          {
+            time: 12,
+            section: '⚡ MIXX POP 拼接',
+            kr: '<span class="chant-highlight">NMIXX! CHANGE UP!</span><br>세상이 정한 룰은 깨버려 <span class="chant-highlight">(Breaker! Breaker!)</span>',
+            sub: '🔥【曲風轉換】拉丁節奏切換明亮合成器曲風，高舉 MIXXSTICK 齊喊 CHANGE UP！',
+            isChangeUp: true
+          },
+          {
+            time: 20,
+            section: 'Chorus 副歌應援',
+            kr: 'Come a-soñar, soñar <span class="chant-highlight">(Soñar!)</span><br>저 높이 날아올라 <span class="chant-highlight">(엔믹스!)</span>',
+            sub: '🔊【副歌齊喊】跟著副歌高音喊出 Soñar! 與 NMIXX!'
+          }
         ]
       },
       {
@@ -268,9 +365,25 @@
         baseColor: 0x3b82f6,
         changeUpColor: 0x10b981,
         chants: [
-          { time: 0, section: 'Opening 小號', kr: '릴리! 오해원! 설윤아! 배이! 김지우! 장규진! DICE!', sub: '【經典應援】開場小號響起立刻進入六人應援！' },
-          { time: 12, section: '⚡ BIG WAVE', kr: 'NMIXX! CHANGE UP! Let\'s go! Big wave, big wave 피하지 마!', sub: '🔥【傳奇巨浪】Big wave! 林口體育館全場掀起波浪舞！', isChangeUp: true },
-          { time: 21, section: 'High Note 高音', kr: '더 높이 날아올라 Roll the dice! (와아아아!!)', sub: '【高音應援】全場最強分貝尖叫支援！' }
+          {
+            time: 0,
+            section: 'Opening 應援',
+            kr: '릴리! 오해원! 설윤아! 배이! 김지우! 장규진! <span class="chant-highlight">엔믹스!</span><br>O.O to the <span class="chant-highlight">(DICE!)</span>',
+            sub: '🔊【開場小號】小號響起立刻喊出六人本名應援！'
+          },
+          {
+            time: 12,
+            section: '⚡傳奇 BIG WAVE',
+            kr: '<span class="chant-highlight">NMIXX! CHANGE UP! Let\'s go!</span><br><span class="chant-highlight">Big wave, big wave</span> 피하지 마! 돌파해 정면으로 <span class="chant-highlight">(Beat it up!)</span>',
+            sub: '🔥【Sullyoon & Kyujin 領唱】全場大合唱 Big wave, big wave 並揮出波浪手燈！',
+            isChangeUp: true
+          },
+          {
+            time: 21,
+            section: 'High Note 4段高音',
+            kr: '더 높이 날아올라 <span class="chant-highlight">Roll the dice! (와아아아!!)</span>',
+            sub: '🔊【Lily 逆天高音】全場高舉手燈尖叫應援！'
+          }
         ]
       },
       {
@@ -282,50 +395,62 @@
         baseColor: 0xf43f5e,
         changeUpColor: 0x38bdf8,
         chants: [
-          { time: 0, section: '萬人大合唱', kr: 'La-la-la-la-la~ Run for roses!', sub: '【林口大合唱】全場左右大幅度揮舞玫瑰紅與深海藍手燈！' },
-          { time: 14, section: '⚡ Band Drop', kr: 'We run for roses! (엔믹스!) 피어날 때까지!', sub: '🔥【演唱會神曲】小提琴與樂團鼓點炸裂，全場跳起來！', isChangeUp: true }
+          {
+            time: 0,
+            section: '萬人大合唱 Intro',
+            kr: '<span class="chant-highlight">La-la-la-la-la~ La-la-la-la-la~</span><br>릴리! 오해원! 설윤아! 배이! 김지우! 장규진! 엔믹스!',
+            sub: '🔊【林口大合唱】全場跟著小提琴旋律大合唱 La-la-la 並左右擺動手燈！'
+          },
+          {
+            time: 14,
+            section: '⚡ Band Drop 炸裂',
+            kr: 'We run for roses! <span class="chant-highlight">(Run for roses!)</span><br>피어날 때까지 <span class="chant-highlight">(엔믹스!)</span>',
+            sub: '🔥【樂團高潮】重鼓點落下，全場跳起來大喊 Run for roses!',
+            isChangeUp: true
+          }
         ]
       }
     ];
 
     /*************************************************************************
-     * 2. 林口體育館 (NTSU Arena) 真實分區與相機視角座標
+     * 2. 林口體育館 (NTSU Arena) 真實分區座標與初始視角角度
+     *    - 改用球面自由旋轉 (yaw / pitch)，在兩側看台可 360° 無死角環視全場
      *************************************************************************/
     const LINKOU_SEATS = {
       vip_ab: {
         name: 'VIP 搖滾 A/B 延伸魚池區',
         price: 'NT$ 6,800',
-        pos: { x: 0.6, y: 2.3, z: 7.4 },
-        lookAt: { x: 0, y: 2.9, z: -2.0 },
-        desc: '📍 <b>林口 VIP 搖滾 A/B 區</b>：緊貼中央延伸小舞台，近距離仰視 6 位成員生人舞台與眼神互動！'
+        pos: { x: 0.5, y: 2.25, z: 7.2 },
+        focusTarget: { x: 0, y: 2.7, z: -1.5 },
+        desc: '📍 <b>林口 VIP 搖滾區</b>：緊貼中央延伸舞台，近距離仰視 6 位成員與舞台前緣噴火/乾冰氣柱！'
       },
       orange_2b: {
         name: '橙 2B 區前排看台王位 (左側)',
         price: 'NT$ 5,800',
-        pos: { x: -13.5, y: 6.2, z: 3.5 },
-        lookAt: { x: 0, y: 2.6, z: -2.5 },
-        desc: '📍 <b>林口橙 2B 前排</b>：林口體育館公認神席！無欄杆遮擋，斜角同時近看主舞台與延伸舞台，體感極近。'
+        pos: { x: -14.2, y: 5.8, z: 3.2 },
+        focusTarget: { x: 0, y: 2.5, z: -2.0 },
+        desc: '📍 <b>林口橙 2B 前排王位</b>：位於左側二樓看台透明玻璃護欄後第一排！單指左右滑動可從北側主舞台一路環視到延伸舞台與南側黃區燈海，也可按「⬅️➡️」在看台走道移動。'
       },
       blue_2b: {
         name: '藍 2B 區前排看台王位 (右側)',
         price: 'NT$ 5,800',
-        pos: { x: 13.5, y: 6.2, z: 3.5 },
-        lookAt: { x: 0, y: 2.6, z: -2.5 },
-        desc: '📍 <b>林口藍 2B 前排</b>：右側二樓看台第一排，成員走到延伸舞台右側飯撒時幾乎零距離對視！'
+        pos: { x: 14.2, y: 5.8, z: 3.2 },
+        focusTarget: { x: 0, y: 2.5, z: -2.0 },
+        desc: '📍 <b>林口藍 2B 前排王位</b>：位於右側二樓看台第一排！超廣角視野可自由轉頭看主舞台大螢幕、延伸舞台成員側面隊形與全場波浪燈海。'
       },
       yellow_2c: {
         name: '黃 2C 區正中央看台 (控台後方)',
         price: 'NT$ 4,800',
-        pos: { x: 0, y: 8.2, z: 19.5 },
-        lookAt: { x: 0, y: 2.8, z: -5.0 },
-        desc: '📍 <b>林口黃 2C 正中央看台</b>：正對主舞台與 Y 字延伸舞台中軸線，完整觀賞 NMIXX 刀群舞對稱隊形與全場中控燈海。'
+        pos: { x: 0, y: 7.8, z: 19.2 },
+        focusTarget: { x: 0, y: 2.7, z: -4.0 },
+        desc: '📍 <b>林口黃 2C 正中央看台</b>：位於 FOH 音控帳篷後方看台，正對舞台中軸線，完整收錄主舞台、延伸舞台與藍/黃/橙三色看台燈海。'
       },
       top_4f: {
-        name: '橙 4B / 藍 4B 四樓山頂區',
+        name: '4F 橙4B / 藍4B 山頂區',
         price: 'NT$ 2,800',
-        pos: { x: -18.5, y: 15.8, z: 24.5 },
-        lookAt: { x: 0, y: 3.0, z: -4.0 },
-        desc: '📍 <b>林口 4 樓高斜坡山頂區</b>：完整體會林口體育館著名的「陡峭碗型大斜坡」，俯瞰屋頂鋼骨燈架與萬人鯨魚燈海！'
+        pos: { x: -19.5, y: 15.2, z: 22.0 },
+        focusTarget: { x: 0, y: 3.0, z: -3.0 },
+        desc: '📍 <b>林口 4 樓高斜坡山頂區</b>：體驗林口著名的陡峭碗型大斜坡，平視屋頂中央四面計分螢幕與貓道燈架，建議開啟上方「10x」鏡頭拍成員特寫！'
       }
     };
 
@@ -339,13 +464,10 @@
     ];
 
     /*************************************************************************
-     * 3. 原版音樂串流引擎 (iTunes Official Stream + Web Audio Analyser)
+     * 3. 原版音樂串流引擎 (iTunes Official API + 本機音檔支援)
      *************************************************************************/
     const audioEl = document.getElementById('real-audio');
-    let audioCtx = null;
-    let analyser = null;
-    let freqData = null;
-    let audioSourceNode = null;
+    let audioCtx = null, analyser = null, freqData = null;
     const previewUrlCache = {};
 
     let currentSong = SONGS[0];
@@ -354,7 +476,8 @@
     let lightMode = 'ocean';
     let isChangeUpActive = false;
     let cheerBoost = 0;
-    let bassEnergy = 0; // 由真實 NMIXX 原曲低頻即時驅動
+    let flameTriggerTime = -10;
+    let bassEnergy = 0;
 
     function ensureAudioAnalyzer() {
       if (!audioCtx) {
@@ -363,41 +486,26 @@
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = 256;
         freqData = new Uint8Array(analyser.frequencyBinCount);
-
         try {
-          audioSourceNode = audioCtx.createMediaElementSource(audioEl);
-          audioSourceNode.connect(analyser);
+          const src = audioCtx.createMediaElementSource(audioEl);
+          src.connect(analyser);
           analyser.connect(audioCtx.destination);
-        } catch (err) {
-          console.warn('Audio node already connected:', err);
-        }
+        } catch (e) {}
       }
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
+      if (audioCtx.state === 'suspended') audioCtx.resume();
     }
 
-    // 透過 iTunes Search API 自動取得 NMIXX 官方正版高音質音源
     async function fetchOfficialNmixxTrack(song) {
       if (previewUrlCache[song.id]) return previewUrlCache[song.id];
-      const tag = document.getElementById('audio-source-tag');
-      tag.textContent = '連線官方音源中...';
-
       try {
-        const url = `https://itunes.apple.com/search?term=${encodeURIComponent(song.searchQuery)}&entity=song&limit=5`;
-        const res = await fetch(url);
+        const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(song.searchQuery)}&entity=song&limit=5`);
         const data = await res.json();
-        const match = data.results.find(item =>
-          item.artistName && item.artistName.toUpperCase().includes('NMIXX')
-        ) || data.results[0];
-
+        const match = data.results.find(r => r.artistName && r.artistName.toUpperCase().includes('NMIXX')) || data.results[0];
         if (match && match.previewUrl) {
           previewUrlCache[song.id] = match.previewUrl;
           return match.previewUrl;
         }
-      } catch (e) {
-        console.warn('iTunes API 讀取失敗，可改用本機音檔:', e);
-      }
+      } catch (e) {}
       return null;
     }
 
@@ -409,37 +517,31 @@
       isChangeUpActive = false;
       renderSongList();
       updateChantUI();
+      if (autoPlay) closeDrawer();
 
       const streamUrl = await fetchOfficialNmixxTrack(currentSong);
       const tag = document.getElementById('audio-source-tag');
-
       if (streamUrl) {
         audioEl.src = streamUrl;
         audioEl.loop = true;
-        tag.textContent = 'Apple Music 官方原曲';
-        tag.className = 'px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[10px] font-bold';
+        tag.textContent = 'Apple 官方原曲';
         if (autoPlay) {
           ensureAudioAnalyzer();
           audioEl.play().then(updatePlayButtonUI).catch(() => {});
         }
-      } else {
-        tag.textContent = '請點擊左下上傳 MP3';
       }
     }
 
-    // 支援使用者載入自己電腦/手機中的完整版 NMIXX 原曲 MP3 / FLAC
     function loadCustomAudioFile(event) {
       const file = event.target.files[0];
       if (!file) return;
       ensureAudioAnalyzer();
-      const objUrl = URL.createObjectURL(file);
-      audioEl.src = objUrl;
+      audioEl.src = URL.createObjectURL(file);
       audioEl.loop = true;
       audioEl.play().then(updatePlayButtonUI);
-
-      const cleanName = file.name.replace(/\.[^/.]+$/, '');
-      document.getElementById('audio-source-tag').textContent = '本機無損完整原曲';
-      document.getElementById('now-playing-title').textContent = `🎵 正在演出：${cleanName}`;
+      document.getElementById('audio-source-tag').textContent = '本機完整原曲';
+      document.getElementById('now-playing-title').textContent = file.name.replace(/\.[^/.]+$/, '');
+      closeDrawer();
     }
 
     function togglePlayPause() {
@@ -448,124 +550,162 @@
         selectSong(currentSong.id, true);
         return;
       }
-      if (audioEl.paused) {
-        audioEl.play().then(updatePlayButtonUI);
-      } else {
-        audioEl.pause();
-        updatePlayButtonUI();
-      }
+      if (audioEl.paused) audioEl.play().then(updatePlayButtonUI);
+      else { audioEl.pause(); updatePlayButtonUI(); }
     }
 
     function updatePlayButtonUI() {
       const btn = document.getElementById('play-pause-btn');
       if (!audioEl.paused) {
-        btn.textContent = '⏸️ 暫停原曲';
-        btn.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-black bg-amber-400 text-slate-950 hover:bg-amber-300 transition';
+        btn.textContent = '⏸️ 暫停';
+        btn.className = 'py-2 px-3 rounded-xl bg-amber-400 text-slate-950 text-[11px] md:text-xs font-black transition shrink-0';
       } else {
         btn.textContent = '▶️ 播放原曲';
-        btn.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-black bg-cyan-400 text-slate-950 hover:bg-cyan-300 transition';
+        btn.className = 'py-2 px-3 rounded-xl bg-cyan-400 text-slate-950 text-[11px] md:text-xs font-black transition shrink-0';
       }
     }
 
     function seekAudio(e) {
       if (!audioEl.duration) return;
       const rect = e.currentTarget.getBoundingClientRect();
-      const ratio = (e.clientX - rect.left) / rect.width;
-      audioEl.currentTime = ratio * audioEl.duration;
-    }
-
-    function formatTime(sec) {
-      if (!sec || isNaN(sec)) return '0:00';
-      const m = Math.floor(sec / 60);
-      const s = Math.floor(sec % 60).toString().padStart(2, '0');
-      return `${m}:${s}`;
+      audioEl.currentTime = ((e.clientX - rect.left) / rect.width) * audioEl.duration;
     }
 
     audioEl.addEventListener('timeupdate', () => {
       const cur = audioEl.currentTime;
       const dur = audioEl.duration || 30;
-      document.getElementById('time-current').textContent = formatTime(cur);
-      document.getElementById('time-total').textContent = formatTime(dur);
+      const m = Math.floor(cur / 60), s = Math.floor(cur % 60).toString().padStart(2, '0');
+      const dm = Math.floor(dur / 60), ds = Math.floor(dur % 60).toString().padStart(2, '0');
+      document.getElementById('time-current').textContent = `${m}:${s}`;
+      document.getElementById('time-total').textContent = `${dm}:${ds}`;
       document.getElementById('audio-progress').style.width = `${(cur / dur) * 100}%`;
 
-      // 根據原曲播放秒數自動同步切換應援詞段落
       const modTime = cur % 30;
       let matchedIdx = 0;
-      currentSong.chants.forEach((c, idx) => {
-        if (modTime >= c.time) matchedIdx = idx;
-      });
+      currentSong.chants.forEach((c, idx) => { if (modTime >= c.time) matchedIdx = idx; });
       if (matchedIdx !== currentChantIdx) {
         currentChantIdx = matchedIdx;
-        isChangeUpActive = !!currentSong.chants[currentChantIdx].isChangeUp;
+        const isCU = !!currentSong.chants[currentChantIdx].isChangeUp;
+        if (isCU && !isChangeUpActive) flameTriggerTime = clock.getElapsedTime();
+        isChangeUpActive = isCU;
         updateChantUI();
       }
     });
 
-    // 合成全場萬人 NSWER 應援歡呼聲
     function playNswerCheerSound(intense = false) {
       ensureAudioAnalyzer();
       if (!audioCtx) return;
       const now = audioCtx.currentTime;
-      const dur = intense ? 1.5 : 0.7;
+      const dur = intense ? 1.4 : 0.65;
       const bufSize = Math.floor(audioCtx.sampleRate * dur);
       const buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
       const data = buf.getChannelData(0);
-      for (let i = 0; i < bufSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufSize) * Math.PI);
-      }
+      for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * Math.sin((i / bufSize) * Math.PI);
       const noise = audioCtx.createBufferSource();
       noise.buffer = buf;
       const filter = audioCtx.createBiquadFilter();
       filter.type = 'bandpass';
-      filter.frequency.value = intense ? 1250 : 920;
-      filter.Q.value = 1.6;
+      filter.frequency.value = intense ? 1200 : 900;
       const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0.26, now);
+      gain.gain.setValueAtTime(0.24, now);
       gain.gain.exponentialRampToValueAtTime(0.01, now + dur);
-      noise.connect(filter);
-      filter.connect(gain);
-      gain.connect(audioCtx.destination);
+      noise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
       noise.start(now);
     }
 
     /*************************************************************************
-     * 4. Three.js 建構「林口體育館 (NTSU Arena)」3D 空間與頂部鋼骨桁架
+     * 4. Three.js 擬真林口體育館 (NTSU Arena) 建築與舞台特效建模
      *************************************************************************/
     const container = document.getElementById('canvas-container');
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x02040a);
-    scene.fog = new THREE.FogExp2(0x02040a, 0.011);
+    scene.fog = new THREE.FogExp2(0x02040a, 0.009);
 
-    const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 250);
+    const isMobileScreen = window.innerWidth < 768;
+    const baseFov = isMobileScreen ? 68 : 56; // 手機版預設更廣角，輕鬆容納完整舞台
+    const camera = new THREE.PerspectiveCamera(baseFov, window.innerWidth / window.innerHeight, 0.1, 260);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(renderer.domElement);
 
-    // 場館環境光與舞台聚光燈
-    scene.add(new THREE.AmbientLight(0x1e293b, 1.4));
-    const spot1 = new THREE.SpotLight(0x00d2ff, 4.5, 65, Math.PI / 3, 0.4);
-    spot1.position.set(-10, 18, -5);
+    scene.add(new THREE.AmbientLight(0x1e293b, 1.5));
+    const spot1 = new THREE.SpotLight(0x00d2ff, 4.5, 75, Math.PI / 3, 0.4);
+    spot1.position.set(-12, 19, -5);
     scene.add(spot1);
-    const spot2 = new THREE.SpotLight(0xf43f5e, 4.5, 65, Math.PI / 3, 0.4);
-    spot2.position.set(10, 18, -5);
+    const spot2 = new THREE.SpotLight(0xf43f5e, 4.5, 75, Math.PI / 3, 0.4);
+    spot2.position.set(12, 19, -5);
     scene.add(spot2);
 
-    // 【林口體育館特色 1】頂部圓拱形黑色鋼骨結構屋頂與懸吊燈光貓道 (Catwalk Truss)
-    const arenaStructure = new THREE.Group();
-    scene.add(arenaStructure);
+    const arenaGroup = new THREE.Group();
+    scene.add(arenaGroup);
 
-    const trussMat = new THREE.MeshBasicMaterial({ color: 0x1e293b, wireframe: true });
-    const roofGrid = new THREE.GridHelper(68, 24, 0x334155, 0x1e293b);
-    roofGrid.position.set(0, 22.5, 6);
-    arenaStructure.add(roofGrid);
+    // 【林口體育館擬真細節 1】圓拱形鋼骨屋頂 + 中央四面吊掛巨型計分螢幕 (Jumbotron) + 燈光貓道
+    const trussMat = new THREE.MeshBasicMaterial({ color: 0x334155, wireframe: true });
+    for (let arch = -16; arch <= 28; arch += 8) {
+      const archCurve = new THREE.Mesh(
+        new THREE.TorusGeometry(32, 0.35, 6, 36, Math.PI),
+        trussMat
+      );
+      archCurve.position.set(0, 4, arch);
+      arenaGroup.add(archCurve);
+    }
 
-    // 懸吊於延伸舞台正上方的矩形燈光桁架 (Rigging Truss Box)
-    const rigBox = new THREE.Mesh(new THREE.BoxGeometry(18, 0.9, 14), trussMat);
-    rigBox.position.set(0, 16.5, -2);
-    arenaStructure.add(rigBox);
+    // 延伸舞台正上方的大型雙層母架 (Mother Grid Truss)
+    const motherGrid = new THREE.Mesh(new THREE.BoxGeometry(20, 1.1, 16), trussMat);
+    motherGrid.position.set(0, 16.8, -1.5);
+    arenaGroup.add(motherGrid);
 
-    // 【林口體育館特色 2】主舞台 + Y 字型延伸舞台與中央菱形舞台
+    // 林口體育館中央屋頂標誌性四面吊掛電子螢幕箱
+    const jumboBox = new THREE.Mesh(
+      new THREE.BoxGeometry(5.5, 3.2, 5.5),
+      new THREE.MeshStandardMaterial({ color: 0x0f172a, emissive: 0x0284c7, emissiveIntensity: 0.35 })
+    );
+    jumboBox.position.set(0, 19.2, 4.5);
+    arenaGroup.add(jumboBox);
+
+    // 【林口體育館擬真細節 2】1F 搖滾區與 2F 黃區之間的「FOH 音控與燈控黑帳篷」+ 搖滾區鐵馬護欄
+    const fohBooth = new THREE.Mesh(
+      new THREE.BoxGeometry(7.5, 2.2, 3.2),
+      new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.9 })
+    );
+    fohBooth.position.set(0, 1.1, 11.2);
+    arenaGroup.add(fohBooth);
+
+    // 音控台發光混音器螢幕點綴
+    const mixerScreen = new THREE.Mesh(
+      new THREE.PlaneGeometry(4.5, 0.6),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8 })
+    );
+    mixerScreen.position.set(0, 1.6, 9.58);
+    mixerScreen.rotation.x = -0.3;
+    arenaGroup.add(mixerScreen);
+
+    // 【林口體育館擬真細節 3】2F 看台前緣「透明安全玻璃欄杆」與藍/黃/橙三色階梯看台
+    const bowlMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.85, side: THREE.DoubleSide });
+    const tier2Bowl = new THREE.Mesh(
+      new THREE.CylinderGeometry(24.5, 14.5, 7.5, 42, 1, true, -Math.PI * 0.68, Math.PI * 1.36),
+      bowlMat
+    );
+    tier2Bowl.position.set(0, 4.2, 6.0);
+    arenaGroup.add(tier2Bowl);
+
+    // 二樓看台第一排前方的透明強化玻璃護欄 (林口看台真實特徵)
+    const glassRail = new THREE.Mesh(
+      new THREE.CylinderGeometry(14.3, 14.3, 0.85, 42, 1, true, -Math.PI * 0.68, Math.PI * 1.36),
+      new THREE.MeshPhysicalMaterial({ color: 0bae6fd, transparent: true, opacity: 0.18, side: THREE.DoubleSide })
+    );
+    glassRail.position.set(0, 4.35, 6.0);
+    arenaGroup.add(glassRail);
+
+    const tier4Bowl = new THREE.Mesh(
+      new THREE.CylinderGeometry(35, 25, 10, 42, 1, true, -Math.PI * 0.72, Math.PI * 1.44),
+      bowlMat
+    );
+    tier4Bowl.position.set(0, 13.0, 6.0);
+    arenaGroup.add(tier4Bowl);
+
+    // 【主舞台與 Y 字延伸舞台 + 噴火/CO2氣柱機】
     const stageGroup = new THREE.Group();
     scene.add(stageGroup);
 
@@ -574,66 +714,66 @@
     mainStage.position.set(0, 0.7, -9.5);
     stageGroup.add(mainStage);
 
-    // 中央延伸走道
-    const runway = new THREE.Mesh(new THREE.BoxGeometry(3.5, 1.35, 9.5), stageMat);
+    const runway = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.35, 9.5), stageMat);
     runway.position.set(0, 0.68, -1.2);
     stageGroup.add(runway);
 
-    // 延伸舞台前端八角形鯨魚舞台
-    const extStage = new THREE.Mesh(new THREE.CylinderGeometry(4.0, 4.0, 1.38, 8), stageMat);
+    const extStage = new THREE.Mesh(new THREE.CylinderGeometry(4.1, 4.1, 1.38, 8), stageMat);
     extStage.position.set(0, 0.69, 3.2);
     stageGroup.add(extStage);
 
-    // 舞台發光海浪邊條
-    const stageGlowMat = new THREE.MeshBasicMaterial({ color: 0x00d2ff });
-    const extGlowRing = new THREE.Mesh(new THREE.RingGeometry(3.75, 4.0, 8), stageGlowMat);
+    const extGlowRing = new THREE.Mesh(
+      new THREE.RingGeometry(3.85, 4.1, 8),
+      new THREE.MeshBasicMaterial({ color: 0x00d2ff })
+    );
     extGlowRing.rotation.x = -Math.PI / 2;
     extGlowRing.position.set(0, 1.4, 3.2);
     stageGroup.add(extGlowRing);
 
-    // 主舞台中央巨型曲面螢幕 + 左右兩側大螢幕 (林口山頂區必看)
+    // 舞台前緣與延伸舞台周圍的 8 座火焰 / CO2 氣柱噴射器 (Pyro & Cryo Jets)
+    const pyroJets = [];
+    const pyroPositions = [
+      [-8, -5.5], [-4, -5.5], [4, -5.5], [8, -5.5],
+      [-3.8, 3.2], [3.8, 3.2], [-2.5, 5.8], [2.5, 5.8]
+    ];
+    pyroPositions.forEach(([px, pz]) => {
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(0.65, 5.5, 12, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0xff5500, transparent: true, opacity: 0, blending: THREE.AdditiveBlending })
+      );
+      cone.position.set(px, 4.0, pz);
+      cone.rotation.x = Math.PI; // 火焰往上衝
+      scene.add(cone);
+      pyroJets.push(cone);
+    });
+
+    // 舞台巨型中央螢幕與兩側大斜幕 (兩側橙2B/藍2B觀眾也能清楚看到螢幕)
     const ledCanvas = document.createElement('canvas');
-    ledCanvas.width = 1024;
-    ledCanvas.height = 512;
+    ledCanvas.width = 1024; ledCanvas.height = 512;
     const ledCtx = ledCanvas.getContext('2d');
     const ledTex = new THREE.CanvasTexture(ledCanvas);
 
-    const centerScreen = new THREE.Mesh(new THREE.PlaneGeometry(19, 8.2), new THREE.MeshBasicMaterial({ map: ledTex }));
+    const screenMat = new THREE.MeshBasicMaterial({ map: ledTex, side: THREE.DoubleSide });
+    const centerScreen = new THREE.Mesh(new THREE.PlaneGeometry(19, 8.2), screenMat);
     centerScreen.position.set(0, 5.6, -13.2);
     stageGroup.add(centerScreen);
 
-    const sideScreenL = new THREE.Mesh(new THREE.PlaneGeometry(7.5, 4.8), new THREE.MeshBasicMaterial({ map: ledTex }));
-    sideScreenL.position.set(-14, 6.4, -10.2);
-    sideScreenL.rotation.y = 0.42;
+    const sideScreenL = new THREE.Mesh(new THREE.PlaneGeometry(8.2, 5.0), screenMat);
+    sideScreenL.position.set(-14.2, 6.4, -9.5);
+    sideScreenL.rotation.y = 0.52;
     stageGroup.add(sideScreenL);
 
-    const sideScreenR = new THREE.Mesh(new THREE.PlaneGeometry(7.5, 4.8), new THREE.MeshBasicMaterial({ map: ledTex }));
-    sideScreenR.position.set(14, 6.4, -10.2);
-    sideScreenR.rotation.y = -0.42;
+    const sideScreenR = new THREE.Mesh(new THREE.PlaneGeometry(8.2, 5.0), screenMat);
+    sideScreenR.position.set(14.2, 6.4, -9.5);
+    sideScreenR.rotation.y = -0.52;
     stageGroup.add(sideScreenR);
-
-    // 【林口體育館特色 3】U型馬蹄碗狀連續大斜坡看台階梯建模
-    const bowlMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.85, side: THREE.DoubleSide });
-    const tier2Bowl = new THREE.Mesh(
-      new THREE.CylinderGeometry(24, 15, 7.5, 36, 1, true, -Math.PI * 0.68, Math.PI * 1.36),
-      bowlMat
-    );
-    tier2Bowl.position.set(0, 4.2, 6.5);
-    arenaStructure.add(tier2Bowl);
-
-    const tier4Bowl = new THREE.Mesh(
-      new THREE.CylinderGeometry(34, 24.5, 9.5, 36, 1, true, -Math.PI * 0.72, Math.PI * 1.44),
-      bowlMat
-    );
-    tier4Bowl.position.set(0, 12.8, 6.5);
-    arenaStructure.add(tier4Bowl);
 
     // 舞台雷射光束
     const laserBeams = [];
     for (let i = 0; i < 10; i++) {
       const beam = new THREE.Mesh(
-        new THREE.ConeGeometry(1.9, 32, 16, 1, true),
-        new THREE.MeshBasicMaterial({ color: 0x00d2ff, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending })
+        new THREE.ConeGeometry(1.8, 34, 16, 1, true),
+        new THREE.MeshBasicMaterial({ color: 0x00d2ff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending })
       );
       beam.position.set(-12 + i * 2.66, 10.5, -12);
       beam.rotation.x = Math.PI / 2.5;
@@ -642,138 +782,70 @@
     }
 
     /*************************************************************************
-     * 5. 1:1 高還原度官方原版 MIXXSTICK 手燈建模 (鯨魚+波浪水柱+噴水+雙按鍵)
+     * 5. 官方原版 MIXXSTICK 手燈建模 (調整為更精巧尺寸，不遮擋手機畫面)
      *************************************************************************/
     function createAuthenticMixxstick(isFirstPerson = false) {
       const root = new THREE.Group();
-      const s = isFirstPerson ? 1.0 : 0.36;
+      const s = isFirstPerson ? 0.78 : 0.35; // 第一人稱手燈縮放至 0.78，精緻不擋舞台
 
-      // 1. 純白磨砂流線型握把 (錐形收腰設計)
-      const handleMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.22, metalness: 0.08 });
-      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.088 * s, 0.068 * s, 0.82 * s, 24), handleMat);
+      const handleMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.22 });
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.088 * s, 0.068 * s, 0.82 * s, 20), handleMat);
       handle.position.y = -0.38 * s;
       root.add(handle);
 
-      // 底部圓弧尾蓋與手繩掛孔
-      const bottomCap = new THREE.Mesh(new THREE.SphereGeometry(0.068 * s, 16, 16), handleMat);
-      bottomCap.position.y = -0.79 * s;
-      root.add(bottomCap);
-
-      // 2. 頸部銀白金屬 NMIXX LOGO 環圈
       const silverMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.85, roughness: 0.15 });
-      const neckCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.115 * s, 0.09 * s, 0.11 * s, 24), silverMat);
+      const neckCollar = new THREE.Mesh(new THREE.CylinderGeometry(0.115 * s, 0.09 * s, 0.11 * s, 20), silverMat);
       neckCollar.position.y = 0.05 * s;
       root.add(neckCollar);
 
-      // 3. 握把正面膠囊型雙實體按鍵 (僅第一人稱精細渲染)
       if (isFirstPerson) {
-        const pillPlate = new THREE.Mesh(
-          new THREE.BoxGeometry(0.045, 0.17, 0.02),
-          new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.5 })
-        );
-        pillPlate.position.set(0, -0.14, -0.082);
+        const pillPlate = new THREE.Mesh(new THREE.BoxGeometry(0.04 * s, 0.17 * s, 0.02 * s), silverMat);
+        pillPlate.position.set(0, -0.14 * s, -0.082 * s);
         root.add(pillPlate);
-
-        const btnTop = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.025, 12), silverMat);
-        btnTop.rotation.x = Math.PI / 2;
-        btnTop.position.set(0, -0.10, -0.088);
-        root.add(btnTop);
-
-        const btnBot = btnTop.clone();
-        btnBot.position.set(0, -0.18, -0.088);
-        root.add(btnBot);
       }
 
-      // 4. 內部發光材質 (受中央控制變色)
-      const innerGlowMat = new THREE.MeshBasicMaterial({
-        color: 0x00d2ff,
-        transparent: true,
-        opacity: 0.92
-      });
+      const innerGlowMat = new THREE.MeshBasicMaterial({ color: 0x00d2ff, transparent: true, opacity: 0.92 });
 
-      // 5. 原版手燈精髓：透明球殼內的「深海藍立體波浪水柱底座 (Wave Pillar)」
-      const wavePillarGroup = new THREE.Group();
-      const waveBase = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.17 * s, 0.11 * s, 0.22 * s, 20, 1, false),
-        innerGlowMat
-      );
+      // 球體內深海藍漸層波浪水柱底座
+      const waveBase = new THREE.Mesh(new THREE.CylinderGeometry(0.17 * s, 0.11 * s, 0.22 * s, 16), innerGlowMat);
       waveBase.position.y = 0.22 * s;
-      wavePillarGroup.add(waveBase);
+      root.add(waveBase);
 
-      // 水柱頂端捲起的海浪弧度
-      const waveCrest = new THREE.Mesh(
-        new THREE.TorusGeometry(0.14 * s, 0.045 * s, 12, 24, Math.PI * 1.35),
-        innerGlowMat
-      );
+      const waveCrest = new THREE.Mesh(new THREE.TorusGeometry(0.14 * s, 0.045 * s, 10, 20, Math.PI * 1.35), innerGlowMat);
       waveCrest.rotation.x = Math.PI / 2.3;
       waveCrest.position.y = 0.31 * s;
-      wavePillarGroup.add(waveCrest);
-      root.add(wavePillarGroup);
+      root.add(waveCrest);
 
-      // 6. 原版手燈精髓：立體純白/冰藍漸層躍動大鯨魚 (3D Sculpted Whale)
+      // 立體純白躍動鯨魚雕塑 + 頭頂噴水花
       const whaleGroup = new THREE.Group();
-      const whaleMat = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        emissive: 0x00d2ff,
-        emissiveIntensity: 0.55,
-        roughness: 0.15
-      });
-
-      // 鯨魚流線身軀 (拱背躍水姿態)
-      const whaleBody = new THREE.Mesh(new THREE.SphereGeometry(0.115 * s, 18, 18), whaleMat);
+      const whaleMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x00d2ff, emissiveIntensity: 0.55 });
+      const whaleBody = new THREE.Mesh(new THREE.SphereGeometry(0.115 * s, 16, 16), whaleMat);
       whaleBody.scale.set(1.75, 0.88, 0.95);
       whaleBody.rotation.z = 0.25;
       whaleGroup.add(whaleBody);
 
-      // 鯨魚兩側胸鰭 (Pectoral Fins)
-      const finGeo = new THREE.BoxGeometry(0.08 * s, 0.015 * s, 0.18 * s);
-      const fins = new THREE.Mesh(finGeo, whaleMat);
+      const fins = new THREE.Mesh(new THREE.BoxGeometry(0.08 * s, 0.015 * s, 0.18 * s), whaleMat);
       fins.position.set(0.03 * s, -0.04 * s, 0);
-      fins.rotation.z = -0.2;
       whaleGroup.add(fins);
 
-      // 鯨魚上揚分岔尾鰭 (Fluke Tail)
-      const tailStem = new THREE.Mesh(new THREE.ConeGeometry(0.065 * s, 0.16 * s, 12), whaleMat);
+      const tailStem = new THREE.Mesh(new THREE.ConeGeometry(0.065 * s, 0.16 * s, 10), whaleMat);
       tailStem.position.set(-0.19 * s, 0.06 * s, 0);
       tailStem.rotation.z = Math.PI / 2.8;
       whaleGroup.add(tailStem);
 
-      const flukeL = new THREE.Mesh(new THREE.BoxGeometry(0.07 * s, 0.015 * s, 0.14 * s), whaleMat);
-      flukeL.position.set(-0.25 * s, 0.12 * s, 0);
-      flukeL.rotation.y = 0.3;
-      whaleGroup.add(flukeL);
-
-      // 7. 原版手燈精髓：鯨魚頭頂透明噴水柱 (Blowhole Water Spout)
-      const spoutGroup = new THREE.Group();
-      const spoutStem = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.045 * s, 0.012 * s, 0.13 * s, 12),
+      const spout = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.045 * s, 0.012 * s, 0.13 * s, 10),
         new THREE.MeshBasicMaterial({ color: 0xe0f2fe, transparent: true, opacity: 0.85 })
       );
-      spoutStem.position.set(0.07 * s, 0.15 * s, 0);
-      spoutGroup.add(spoutStem);
-
-      const spoutSplash = new THREE.Mesh(
-        new THREE.TorusGeometry(0.05 * s, 0.014 * s, 8, 16),
-        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 })
-      );
-      spoutSplash.rotation.x = Math.PI / 2;
-      spoutSplash.position.set(0.07 * s, 0.21 * s, 0);
-      spoutGroup.add(spoutSplash);
-      whaleGroup.add(spoutGroup);
+      spout.position.set(0.07 * s, 0.15 * s, 0);
+      whaleGroup.add(spout);
 
       whaleGroup.position.y = 0.41 * s;
       root.add(whaleGroup);
 
-      // 8. 外層高透光水晶球罩 (Crystal Clear Dome + NMIXX 頂部飾紋)
       const dome = new THREE.Mesh(
-        new THREE.SphereGeometry(0.34 * s, 28, 28),
-        new THREE.MeshPhysicalMaterial({
-          color: 0xffffff,
-          transparent: true,
-          opacity: 0.26,
-          roughness: 0.04,
-          metalness: 0.1
-        })
+        new THREE.SphereGeometry(0.34 * s, 24, 24),
+        new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, roughness: 0.05 })
       );
       dome.position.y = 0.38 * s;
       root.add(dome);
@@ -781,84 +853,84 @@
       return { group: root, glowMat: innerGlowMat, whaleMat, whaleGroup };
     }
 
-    // 玩家第一人稱右下角原版 MIXXSTICK
     const playerStick = createAuthenticMixxstick(true);
     scene.add(playerStick.group);
 
-    // 建立林口體育館全場觀眾與 MIXXSTICK 燈海 (搖滾區 + 2樓U型看台 + 4樓U型山頂看台)
+    // 林口體育館觀眾席與真實三色座椅 (橙區 / 黃區 / 藍區) + 全場 MIXXSTICK
     const audienceSticks = [];
     const audienceGroup = new THREE.Group();
     scene.add(audienceGroup);
 
-    const headGeo = new THREE.SphereGeometry(0.21, 8, 8);
+    const headGeo = new THREE.SphereGeometry(0.2, 8, 8);
     const headMat = new THREE.MeshLambertMaterial({ color: 0x0b1120 });
+    const chairGeo = new THREE.BoxGeometry(0.55, 0.55, 0.55);
+    const orangeChairMat = new THREE.MeshLambertMaterial({ color: 0xc2410c }); // 林口橙區座椅
+    const yellowChairMat = new THREE.MeshLambertMaterial({ color: 0xa16207 }); // 林口黃區座椅
+    const blueChairMat = new THREE.MeshLambertMaterial({ color: 0x0369a1 });   // 林口藍區座椅
 
-    // A. 林口 VIP 搖滾區觀眾
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 20; c++) {
-        const x = (c - 9.5) * 1.15;
-        const z = -2.0 + r * 1.3;
-        if (Math.abs(x) < 4.3 && z < 6.0) continue; // 避開延伸舞台
+    // 1. 搖滾 A/B 區觀眾
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < 18; c++) {
+        const x = (c - 8.5) * 1.2;
+        const z = -1.8 + r * 1.35;
+        if (Math.abs(x) < 4.4 && z < 6.0) continue;
 
-        const y = 0.9;
         const head = new THREE.Mesh(headGeo, headMat);
-        head.position.set(x, y, z);
+        head.position.set(x, 0.9, z);
         audienceGroup.add(head);
 
         const st = createAuthenticMixxstick(false);
-        st.group.position.set(x + 0.22, y + 0.35, z - 0.1);
+        st.group.position.set(x + 0.2, 1.25, z - 0.1);
         audienceGroup.add(st.group);
 
         audienceSticks.push({
-          mesh: st.group,
-          glowMat: st.glowMat,
-          whaleMat: st.whaleMat,
-          baseY: y + 0.35,
-          x, z,
-          angle: Math.atan2(x, z),
+          mesh: st.group, glowMat: st.glowMat, whaleMat: st.whaleMat,
+          baseY: 1.25, x, z, angle: Math.atan2(x, z),
           memberColor: MEMBERS[(r + c) % MEMBERS.length].color
         });
       }
     }
 
-    // B. 林口 2F 看台 (橙2B / 黃2C / 藍2B) 與 4F 山頂看台 (U型碗狀環繞排列)
+    // 2. 林口 2F 與 4F 馬蹄形看台 (含藍/黃/橙三色座椅區分)
     function populateLinkouBowl(radiusStart, rows, countPerRow, baseY, rowHeight, rowDepth) {
       for (let r = 0; r < rows; r++) {
         const rad = radiusStart + r * rowDepth;
         const y = baseY + r * rowHeight;
         for (let i = 0; i < countPerRow; i++) {
           const frac = i / (countPerRow - 1);
-          const angle = -Math.PI * 0.66 + frac * Math.PI * 1.32; // U型馬蹄角度
+          const angle = -Math.PI * 0.66 + frac * Math.PI * 1.32;
           const x = Math.sin(angle) * rad;
           const z = Math.cos(angle) * rad + 4.5;
+
+          // 依據角度分配林口真實座椅顏色：左橙(-angle)、中黃、右藍(+angle)
+          const chairMat = angle < -0.45 ? orangeChairMat : (angle > 0.45 ? blueChairMat : yellowChairMat);
+          const chair = new THREE.Mesh(chairGeo, chairMat);
+          chair.position.set(x, y - 0.35, z);
+          chair.lookAt(0, y - 0.35, 0);
+          audienceGroup.add(chair);
 
           const head = new THREE.Mesh(headGeo, headMat);
           head.position.set(x, y, z);
           audienceGroup.add(head);
 
           const st = createAuthenticMixxstick(false);
-          st.group.position.set(x, y + 0.38, z);
+          st.group.position.set(x, y + 0.36, z);
           st.group.lookAt(0, 2.0, -3.0);
           audienceGroup.add(st.group);
 
           audienceSticks.push({
-            mesh: st.group,
-            glowMat: st.glowMat,
-            whaleMat: st.whaleMat,
-            baseY: y + 0.38,
-            x, z,
-            angle,
+            mesh: st.group, glowMat: st.glowMat, whaleMat: st.whaleMat,
+            baseY: y + 0.36, x, z, angle,
             memberColor: MEMBERS[(r + i) % MEMBERS.length].color
           });
         }
       }
     }
 
-    // 生成林口 2樓看台與 4樓大斜坡看台燈海
-    populateLinkouBowl(14.8, 5, 38, 4.2, 0.85, 1.35);
-    populateLinkouBowl(23.5, 4, 44, 11.2, 1.15, 1.5);
+    populateLinkouBowl(14.8, 5, 36, 4.2, 0.85, 1.35);
+    populateLinkouBowl(23.8, 4, 42, 11.2, 1.15, 1.5);
 
-    // 建立舞台上 NMIXX 6 位成員與頭頂名牌
+    // 舞台 NMIXX 6 位成員與名牌
     const memberMeshes = [];
     function createMemberBadge(name, kr, colorHex) {
       const c = document.createElement('canvas');
@@ -901,8 +973,8 @@
       memberMeshes.push({ group: g, baseOffset: m.offset });
     });
 
-    // 漫天銀白與海洋藍彩帶粒子
-    const confettiCount = 300;
+    // 彩帶粒子系統
+    const confettiCount = 260;
     const confettiGeo = new THREE.BufferGeometry();
     const cPos = new Float32Array(confettiCount * 3);
     const cCol = new Float32Array(confettiCount * 3);
@@ -915,23 +987,38 @@
     }
     confettiGeo.setAttribute('position', new THREE.BufferAttribute(cPos, 3));
     confettiGeo.setAttribute('color', new THREE.BufferAttribute(cCol, 3));
-    const confettiSystem = new THREE.Points(confettiGeo, new THREE.PointsMaterial({ size: 0.22, vertexColors: true }));
-    scene.add(confettiSystem);
+    scene.add(new THREE.Points(confettiGeo, new THREE.PointsMaterial({ size: 0.22, vertexColors: true })));
 
     /*************************************************************************
-     * 6. 介面互動與視角控制
+     * 6. 球面自由視角 (360° Spherical Free-Look) 與座位周邊走動系統
+     *    - 徹底解決兩側座位 (橙2B / 藍2B) 轉頭角度受限問題！
      *************************************************************************/
     let targetCamPos = { ...LINKOU_SEATS.vip_ab.pos };
-    let targetLookAt = { ...LINKOU_SEATS.vip_ab.lookAt };
-    let yawOffset = 0, pitchOffset = 0;
+    let baseYaw = 0, basePitch = 0;
+    let userYawDelta = 0, userPitchDelta = 0;
+    let currentYaw = 0, currentPitch = 0;
 
-    function selectSeat(seatKey) {
+    function computeAnglesToTarget(pos, target) {
+      const dx = target.x - pos.x;
+      const dy = target.y - pos.y;
+      const dz = target.z - pos.z;
+      const horizDist = Math.sqrt(dx * dx + dz * dz);
+      return {
+        yaw: Math.atan2(dx, dz),
+        pitch: Math.atan2(dy, horizDist)
+      };
+    }
+
+    function selectSeat(seatKey, autoCloseDrawer = false) {
       currentSeatKey = seatKey;
       const seat = LINKOU_SEATS[seatKey];
       targetCamPos = { ...seat.pos };
-      targetLookAt = { ...seat.lookAt };
-      yawOffset = 0;
-      pitchOffset = 0;
+
+      const angles = computeAnglesToTarget(seat.pos, seat.focusTarget);
+      baseYaw = angles.yaw;
+      basePitch = angles.pitch;
+      userYawDelta = 0;
+      userPitchDelta = 0;
 
       document.getElementById('current-seat-badge').textContent = `${seat.name} (${seat.price})`;
       document.getElementById('seat-desc').innerHTML = seat.desc;
@@ -942,33 +1029,96 @@
         if (k === seatKey) btn.classList.add('ring-2', 'ring-white', 'scale-[1.02]');
         else btn.classList.remove('ring-2', 'ring-white', 'scale-[1.02]');
       });
+
+      if (autoCloseDrawer) closeDrawer();
+    }
+
+    // 對準舞台中央按鈕
+    function resetViewCenter() {
+      const seat = LINKOU_SEATS[currentSeatKey];
+      targetCamPos = { ...seat.pos };
+      const angles = computeAnglesToTarget(targetCamPos, seat.focusTarget);
+      baseYaw = angles.yaw;
+      basePitch = angles.pitch;
+      userYawDelta = 0;
+      userPitchDelta = 0;
+    }
+
+    // 在座位區域內前後左右自由走動微調 (兩側座位也能沿看台走道移動)
+    function nudgeSeatPosition(rightStep, forwardStep) {
+      const yaw = baseYaw + userYawDelta;
+      const fwdX = Math.sin(yaw);
+      const fwdZ = Math.cos(yaw);
+      const rightX = -fwdZ;
+      const rightZ = fwdX;
+
+      targetCamPos.x += rightX * rightStep + fwdX * (-forwardStep);
+      targetCamPos.z += rightZ * rightStep + fwdZ * (-forwardStep);
+    }
+
+    // 抽屜面板開關邏輯
+    let activeDrawer = null;
+    function toggleDrawer(panelName) {
+      const container = document.getElementById('drawer-container');
+      const panels = ['seats', 'songs', 'lightstick'];
+      const titles = {
+        seats: '🏟️ 林口體育館座位分區 & 走位微調',
+        songs: '💿 NMIXX 官方原版音源歌單 (點擊即播)',
+        lightstick: '🐋 官方原版 MIXXSTICK 中控模式'
+      };
+
+      if (activeDrawer === panelName) {
+        closeDrawer();
+        return;
+      }
+      activeDrawer = panelName;
+      container.classList.remove('hidden');
+      document.getElementById('drawer-title').textContent = titles[panelName];
+
+      panels.forEach(p => {
+        document.getElementById(`panel-${p}`).classList.toggle('hidden', p !== panelName);
+      });
+    }
+
+    function closeDrawer() {
+      activeDrawer = null;
+      document.getElementById('drawer-container').classList.add('hidden');
+    }
+
+    let isCleanMode = false;
+    function toggleCleanUI() {
+      isCleanMode = !isCleanMode;
+      document.getElementById('top-hud').classList.toggle('hidden', isCleanMode);
+      document.getElementById('bottom-hud').classList.toggle('hidden', isCleanMode);
+      document.getElementById('restore-ui-btn').classList.toggle('hidden', !isCleanMode);
     }
 
     function setZoom(zf) {
-      camera.fov = 58 / zf;
+      const fovNow = (window.innerWidth < 768 ? 68 : 56) / zf;
+      camera.fov = fovNow;
       camera.updateProjectionMatrix();
       [
         { id: 'zoom-1', val: 1 },
-        { id: 'zoom-2', val: 2.4 },
-        { id: 'zoom-3', val: 5.2 }
+        { id: 'zoom-2', val: 2.3 },
+        { id: 'zoom-3', val: 5.0 }
       ].forEach(z => {
         const el = document.getElementById(z.id);
-        el.className = Math.abs(z.val - zf) < 0.1
-          ? 'px-2 py-1 rounded-lg text-xs font-bold bg-cyan-400 text-slate-950 transition'
-          : 'px-2 py-1 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition';
+        el.className = Math.abs(z.val - zf) < 0.15
+          ? 'px-2 py-1 rounded-lg text-[11px] font-black bg-cyan-400 text-slate-950 transition'
+          : 'px-2 py-1 rounded-lg text-[11px] font-black bg-slate-800/90 text-slate-200 transition';
       });
     }
 
     function updateChantUI() {
       const chant = currentSong.chants[currentChantIdx] || currentSong.chants[0];
-      document.getElementById('now-playing-title').textContent = `🎵 ${currentSong.title} (${currentSong.album})`;
+      document.getElementById('now-playing-title').textContent = `${currentSong.title} · ${currentSong.album}`;
       document.getElementById('song-section-badge').textContent = chant.section;
       const mainEl = document.getElementById('fanchant-main');
-      mainEl.textContent = chant.kr;
+      mainEl.innerHTML = chant.kr;
       document.getElementById('fanchant-sub').textContent = chant.sub;
       mainEl.className = (chant.isChangeUp || isChangeUpActive)
-        ? 'text-lg md:text-2xl font-black tracking-wide text-rose-300 changeup-glow transition-all duration-150 scale-105'
-        : 'text-lg md:text-2xl font-black tracking-wide text-white fanchant-glow transition-all duration-150';
+        ? 'text-sm sm:text-lg md:text-2xl font-black tracking-wide text-rose-200 changeup-glow leading-snug transition-all duration-150'
+        : 'text-sm sm:text-lg md:text-2xl font-black tracking-wide text-white fanchant-glow leading-snug transition-all duration-150';
     }
 
     function renderSongList() {
@@ -976,16 +1126,16 @@
       el.innerHTML = SONGS.map(s => {
         const active = s.id === currentSong.id;
         return `
-          <button onclick="selectSong('${s.id}', true)" class="w-full text-left px-3 py-1.5 rounded-xl flex items-center justify-between transition ${
+          <button onclick="selectSong('${s.id}', true)" class="w-full text-left px-3 py-2 rounded-xl flex items-center justify-between transition ${
             active
               ? 'bg-gradient-to-r from-cyan-500/35 to-blue-600/35 border border-cyan-400 text-white'
-              : 'bg-slate-900/70 hover:bg-slate-800 text-slate-300 border border-transparent'
+              : 'bg-slate-900/80 hover:bg-slate-800 text-slate-300 border border-slate-800'
           }">
-            <div>
-              <div class="text-xs font-black">${s.title}</div>
-              <div class="text-[10px] text-slate-400">${s.album} · 官方原版音源</div>
+            <div class="truncate pr-2">
+              <div class="text-xs font-black truncate">${s.title}</div>
+              <div class="text-[10px] text-slate-400">${s.album}</div>
             </div>
-            <span class="text-[10px] px-2 py-0.5 rounded font-bold ${active ? 'bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-400'}">
+            <span class="text-[10px] px-2 py-0.5 rounded font-bold shrink-0 ${active ? 'bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-400'}">
               播放
             </span>
           </button>
@@ -997,13 +1147,14 @@
       lightMode = mode;
       ['ocean', 'wave', 'mixxpop', 'member'].forEach(m => {
         document.getElementById(`mode-${m}`).className = (m === mode)
-          ? 'py-1.5 px-2 rounded-lg font-bold bg-cyan-400 text-slate-950 transition'
-          : 'py-1.5 px-2 rounded-lg font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition';
+          ? 'py-2.5 px-3 rounded-xl font-black bg-cyan-400 text-slate-950 transition'
+          : 'py-2.5 px-3 rounded-xl font-black bg-slate-800 text-slate-200 transition';
       });
+      closeDrawer();
     }
 
     function triggerCheer() {
-      cheerBoost = 1.1;
+      cheerBoost = 1.15;
       playNswerCheerSound(false);
       currentChantIdx = (currentChantIdx + 1) % currentSong.chants.length;
       updateChantUI();
@@ -1012,34 +1163,72 @@
     function triggerChangeUp() {
       isChangeUpActive = !isChangeUpActive;
       cheerBoost = 1.5;
+      flameTriggerTime = clock.getElapsedTime();
       playNswerCheerSound(true);
       setLightMode(isChangeUpActive ? 'mixxpop' : 'ocean');
       updateChantUI();
     }
 
+    // 鍵盤空白鍵應援 + WASD / 方向鍵在看台走動
     window.addEventListener('keydown', e => {
-      if (e.code === 'Space') {
-        e.preventDefault();
-        triggerCheer();
-      }
+      if (e.code === 'Space') { e.preventDefault(); triggerCheer(); }
+      else if (e.code === 'KeyA' || e.code === 'ArrowLeft') nudgeSeatPosition(-1.2, 0);
+      else if (e.code === 'KeyD' || e.code === 'ArrowRight') nudgeSeatPosition(1.2, 0);
+      else if (e.code === 'KeyW' || e.code === 'ArrowUp') nudgeSeatPosition(0, -1.2);
+      else if (e.code === 'KeyS' || e.code === 'ArrowDown') nudgeSeatPosition(0, 1.2);
     });
 
-    // 拖曳環視林口體育館
+    // 觸控與滑鼠 360° 廣域環視 + 雙指縮放支援
     let dragging = false, px = 0, py = 0;
+    let initialPinchDist = null;
+
     window.addEventListener('pointerdown', e => {
-      if (e.target.closest('.glass-panel') || e.target.tagName === 'BUTTON' || e.target.tagName === 'LABEL') return;
-      dragging = true; px = e.clientX; py = e.clientY;
+      if (e.target.closest('.glass-bar') || e.target.tagName === 'BUTTON' || e.target.tagName === 'LABEL') return;
+      if (activeDrawer) closeDrawer();
+      dragging = true;
+      px = e.clientX;
+      py = e.clientY;
     });
+
     window.addEventListener('pointermove', e => {
       if (!dragging) return;
-      yawOffset -= (e.clientX - px) * 0.0035;
-      pitchOffset = Math.max(-0.48, Math.min(0.48, pitchOffset - (e.clientY - py) * 0.003));
-      px = e.clientX; py = e.clientY;
+      const dx = e.clientX - px;
+      const dy = e.clientY - py;
+      px = e.clientX;
+      py = e.clientY;
+
+      // 兩側座位擁有完整 360° 水平環視與 ±75° 垂直俯仰自由度
+      userYawDelta -= dx * 0.0045;
+      userPitchDelta = Math.max(-1.15, Math.min(1.15, userPitchDelta - dy * 0.0038));
     });
+
     window.addEventListener('pointerup', () => { dragging = false; });
 
+    // 手機雙指捏合無段縮放鏡頭 (Pinch to Zoom)
+    window.addEventListener('touchStart', e => {
+      if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        initialPinchDist = Math.hypot(dx, dy);
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchmove', e => {
+      if (e.touches.length === 2 && initialPinchDist) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const scale = dist / initialPinchDist;
+        camera.fov = Math.max(11, Math.min(72, camera.fov / scale));
+        camera.updateProjectionMatrix();
+        initialPinchDist = dist;
+      }
+    }, { passive: true });
+
+    window.addEventListener('touchend', () => { initialPinchDist = null; });
+
     /*************************************************************************
-     * 7. 即時音源頻譜分析與 3D 動畫主迴圈
+     * 7. 舞台螢幕渲染與 3D 主動畫迴圈
      *************************************************************************/
     function updateArenaScreens(time) {
       const w = ledCanvas.width, h = ledCanvas.height;
@@ -1052,27 +1241,26 @@
       ledCtx.fillStyle = g;
       ledCtx.fillRect(0, 0, w, h);
 
-      // 繪製真實原曲頻譜條 (Real Audio FFT Spectrum)
       ledCtx.fillStyle = isChangeUpActive ? 'rgba(251, 113, 133, 0.55)' : 'rgba(56, 189, 248, 0.5)';
       for (let i = 0; i < 36; i++) {
         const val = freqData ? freqData[i] / 255 : Math.abs(Math.sin(time * 5 + i * 0.4)) * 0.6;
-        const barH = val * 260 + 20;
+        const barH = val * 250 + 20;
         ledCtx.fillRect(32 + i * 27, h - barH, 18, barH);
       }
 
       ledCtx.fillStyle = '#ffffff';
-      ledCtx.font = '900 72px Montserrat, sans-serif';
+      ledCtx.font = '900 70px Montserrat, sans-serif';
       ledCtx.textAlign = 'center';
-      ledCtx.fillText(isChangeUpActive ? 'NMIXX CHANGE UP!' : `NMIXX - ${currentSong.title}`, w / 2, 180);
+      ledCtx.fillText(isChangeUpActive ? 'NMIXX CHANGE UP!' : `NMIXX - ${currentSong.title}`, w / 2, 185);
 
       ledCtx.fillStyle = '#38bdf8';
-      ledCtx.font = '700 38px "Noto Sans TC", sans-serif';
-      const chant = currentSong.chants[currentChantIdx] || currentSong.chants[0];
-      ledCtx.fillText(chant.kr, w / 2, 275);
+      ledCtx.font = '700 34px "Noto Sans TC", sans-serif';
+      const rawChant = (currentSong.chants[currentChantIdx] || currentSong.chants[0]).kr.replace(/<[^>]*>/g, ' ');
+      ledCtx.fillText(rawChant.slice(0, 32), w / 2, 280);
 
       ledCtx.fillStyle = '#fde047';
       ledCtx.font = '700 26px "Noto Sans TC", sans-serif';
-      ledCtx.fillText(`🎥 林口體育館 IMAX 轉播 · ${MEMBERS[Math.floor(time * 0.9) % MEMBERS.length].name} 直拍鏡頭`, w / 2, 355);
+      ledCtx.fillText(`🎥 林口體育館 IMAX · ${MEMBERS[Math.floor(time * 0.9) % MEMBERS.length].name} LIVE CAM`, w / 2, 360);
 
       ledTex.needsUpdate = true;
     }
@@ -1083,7 +1271,6 @@
       requestAnimationFrame(animate);
       const t = clock.getElapsedTime();
 
-      // 讀取原版 NMIXX 音樂的低頻重音能量 (Bass Energy)
       if (analyser && !audioEl.paused) {
         analyser.getByteFrequencyData(freqData);
         let sum = 0;
@@ -1094,48 +1281,50 @@
         bassEnergy = Math.abs(Math.sin(t * (currentSong.bpm / 60) * Math.PI)) * 0.45;
       }
 
-      // 相機平滑移位與環視
-      camera.position.lerp(new THREE.Vector3(targetCamPos.x, targetCamPos.y, targetCamPos.z), 0.08);
-      camera.lookAt(
-        targetLookAt.x + Math.sin(yawOffset) * 14,
-        targetLookAt.y + pitchOffset * 10,
-        targetLookAt.z
+      // 1. 球面自由視角更新 (無論坐在正面或兩側橙2B/藍2B，皆可滑順 360° 轉頭)
+      camera.position.lerp(new THREE.Vector3(targetCamPos.x, targetCamPos.y, targetCamPos.z), 0.1);
+      const targetYaw = baseYaw + userYawDelta;
+      const targetPitch = Math.max(-1.2, Math.min(1.2, basePitch + userPitchDelta));
+      currentYaw += (targetYaw - currentYaw) * 0.14;
+      currentPitch += (targetPitch - currentPitch) * 0.14;
+
+      const lookDir = new THREE.Vector3(
+        Math.cos(currentPitch) * Math.sin(currentYaw),
+        Math.sin(currentPitch),
+        Math.cos(currentPitch) * Math.cos(currentYaw)
       );
+      camera.lookAt(camera.position.clone().add(lookDir));
 
-      // 更新玩家手中的原版 3D MIXXSTICK (含球內鯨魚隨音樂上下游動)
+      // 2. 第一人稱 MIXXSTICK 擺放於畫面右下角邊緣，絕不遮擋手機中央舞台
       cheerBoost = Math.max(0, cheerBoost - 0.025);
-      const camDir = new THREE.Vector3();
-      camera.getWorldDirection(camDir);
-      const camRight = new THREE.Vector3().crossVectors(camDir, camera.up).normalize();
-      const camUp = new THREE.Vector3().crossVectors(camRight, camDir).normalize();
+      const camRight = new THREE.Vector3().crossVectors(lookDir, camera.up).normalize();
+      const camUp = new THREE.Vector3().crossVectors(camRight, lookDir).normalize();
+      const isPortrait = window.innerWidth < 768;
 
-      const swing = Math.sin(t * (currentSong.bpm / 60) * Math.PI) * (0.22 + bassEnergy * 0.45 + cheerBoost * 0.6);
+      const swing = Math.sin(t * (currentSong.bpm / 60) * Math.PI) * (0.2 + bassEnergy * 0.4 + cheerBoost * 0.55);
       playerStick.group.position.copy(camera.position)
-        .add(camDir.clone().multiplyScalar(1.22))
-        .add(camRight.clone().multiplyScalar(0.52))
-        .add(camUp.clone().multiplyScalar(-0.36 + Math.abs(swing) * 0.12));
+        .add(lookDir.clone().multiplyScalar(1.15))
+        .add(camRight.clone().multiplyScalar(isPortrait ? 0.36 : 0.52))
+        .add(camUp.clone().multiplyScalar((isPortrait ? -0.46 : -0.38) + Math.abs(swing) * 0.1));
 
       playerStick.group.quaternion.copy(camera.quaternion);
       playerStick.group.rotateX(swing - 0.22);
-      playerStick.group.rotateZ(-0.12);
+      playerStick.group.rotateZ(-0.14);
 
-      // 原版 MIXXSTICK 球體內的立體鯨魚隨重低音呼吸躍動
-      playerStick.whaleGroup.position.y = 0.41 + Math.sin(t * 4.5) * 0.022 + bassEnergy * 0.03;
-      playerStick.whaleGroup.rotation.z = Math.sin(t * 3) * 0.08;
+      playerStick.whaleGroup.position.y = 0.32 + Math.sin(t * 4.5) * 0.018 + bassEnergy * 0.025;
 
-      // 更新林口體育館全場觀眾 MIXXSTICK 燈海
+      // 3. 更新林口全場觀眾 MIXXSTICK 燈海
       const c = new THREE.Color();
       audienceSticks.forEach(st => {
         const wave = Math.sin(t * 5 + st.angle * 3);
         st.mesh.position.y = st.baseY + Math.max(0, wave) * (0.12 + bassEnergy * 0.22);
 
-        if (lightMode === 'ocean') {
-          c.setHex(currentSong.baseColor);
-        } else if (lightMode === 'wave') {
+        if (lightMode === 'ocean') c.setHex(currentSong.baseColor);
+        else if (lightMode === 'wave') {
           const hue = ((st.angle / (Math.PI * 2)) + t * 0.25) % 1;
           c.setHSL((hue + 1) % 1, 0.95, 0.55);
         } else if (lightMode === 'mixxpop') {
-          const flash = bassEnergy > 0.58 || Math.sin(t * 20 + st.x) > 0.2;
+          const flash = bassEnergy > 0.56 || Math.sin(t * 20 + st.x) > 0.2;
           c.setHex(flash ? currentSong.changeUpColor : 0xffffff);
         } else if (lightMode === 'member') {
           c.setHex(st.memberColor);
@@ -1146,17 +1335,29 @@
       playerStick.glowMat.color.copy(c);
       playerStick.whaleMat.emissive.copy(c);
 
-      // 更新 6 位成員走位
+      // 4. 更新舞台噴火 / CO2 氣柱特效
+      const flameAge = t - flameTriggerTime;
+      pyroJets.forEach((jet, idx) => {
+        if (flameAge >= 0 && flameAge < 2.2) {
+          jet.material.opacity = Math.sin((flameAge / 2.2) * Math.PI) * 0.85;
+          jet.scale.y = 0.6 + Math.sin(t * 25 + idx) * 0.4;
+          jet.material.color.setHex(idx < 4 ? 0xff4500 : 0x38bdf8); // 主舞台噴火、延伸舞台噴CO2冰霧
+        } else {
+          jet.material.opacity = 0;
+        }
+      });
+
+      // 5. 更新 6 位成員走位 (在延伸舞台與主舞台間動態變化，並面向全場互動)
       memberMeshes.forEach((m, i) => {
-        const jump = bassEnergy * 0.28;
-        const targetZ = isChangeUpActive ? 3.2 + Math.sin(t + i) * 1.1 : 1.8 - Math.abs(i - 2.5) * 0.55;
-        const targetX = isChangeUpActive ? Math.cos(t * 0.8 + (i * Math.PI) / 3) * 2.3 : m.baseOffset * 0.8;
+        const jump = bassEnergy * 0.26;
+        const targetZ = isChangeUpActive ? 3.2 + Math.sin(t + i) * 1.2 : 1.8 - Math.abs(i - 2.5) * 0.55;
+        const targetX = isChangeUpActive ? Math.cos(t * 0.8 + (i * Math.PI) / 3) * 2.4 : m.baseOffset * 0.8;
         m.group.position.x += (targetX - m.group.position.x) * 0.06;
         m.group.position.z += (targetZ - m.group.position.z) * 0.06;
         m.group.position.y = 1.4 + jump;
       });
 
-      // 雷射與彩帶更新
+      // 6. 雷射與彩帶
       laserBeams.forEach((b, idx) => {
         b.rotation.z = Math.sin(t * (isChangeUpActive ? 3.8 : 1.3) + idx) * 0.55;
         b.material.color.setHex(isChangeUpActive ? currentSong.changeUpColor : currentSong.baseColor);
@@ -1180,9 +1381,9 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // 啟動初始化並預先載入第一首《DASH》官方原版音源
+    // 初始化啟動
     renderSongList();
-    selectSeat('vip_ab');
+    selectSeat('vip_ab', false);
     selectSong('dash', false);
     animate();
   </script>
